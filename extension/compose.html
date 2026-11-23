@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ThunderQuail compose</title>
+  <link rel="stylesheet" href="ui.css">
+  <script type="module" src="compose.mjs"></script>
+</head>
+<body class="popup compose">
+  <main>
+    <h1>ThunderQuail compose</h1>
+    <p id="provider"></p>
+    <form id="generate">
+      <label for="mode">Action</label>
+      <select id="mode">
+        <option value="draft">Draft from a prompt</option>
+        <option value="selection" disabled>Rewrite selected text</option>
+        <option value="body">Rewrite entire draft</option>
+      </select>
+      <label for="instruction">Instructions</label>
+      <textarea id="instruction" rows="3"></textarea>
+      <button id="generate-button" type="submit" disabled>Generate preview</button>
+    </form>
+    <section id="preview-section" hidden>
+      <label for="preview">Preview</label>
+      <textarea id="preview" rows="6"></textarea>
+      <button id="apply" type="button">Apply to draft</button>
+    </section>
+    <p id="status" role="status">Loading compose tools…</p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,136 @@
+:root {
+  color-scheme: light dark;
+  font: 15px / 1.5 system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: Canvas;
+  color: CanvasText;
+}
+
+.popup main {
+  min-width: 220px;
+  padding: 16px;
+}
+
+.settings main, .chat main {
+  max-width: 36rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+.chat main {
+  max-width: 48rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.controls h1 {
+  margin: 0 auto 0 0;
+}
+
+#transcript article {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid GrayText;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#transcript h2 {
+  font-size: 1rem;
+  margin: 0 0 0.4rem;
+}
+
+.chat textarea, .compose textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0.35rem 0 0.75rem;
+  padding: 0.6rem;
+  font: inherit;
+  resize: vertical;
+}
+
+.compose main {
+  width: 340px;
+}
+
+.compose label {
+  display: block;
+}
+
+.compose select {
+  font: inherit;
+}
+
+.compose #preview-section {
+  margin-top: 1rem;
+}
+
+#attachment:empty {
+  display: none;
+}
+
+.mailbox-option {
+  display: block;
+  margin: 0 0 0.75rem;
+}
+
+#scope-controls {
+  margin: 0.75rem 0;
+}
+
+#scope-controls select {
+  max-width: 100%;
+  font: inherit;
+}
+
+#confirm-mailbox {
+  max-width: min(36rem, 85vw);
+}
+
+#mailbox-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0 0 1rem;
+}
+
+fieldset {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid GrayText;
+  border-radius: 6px;
+}
+
+label {
+  margin-top: 0.6rem;
+  font-weight: 600;
+}
+
+input, button {
+  font: inherit;
+  padding: 0.35rem 0.6rem;
+}
+
+fieldset button {
+  justify-self: start;
+  margin-top: 1rem;
+}
+
+#status:empty {
+  display: none;
+}

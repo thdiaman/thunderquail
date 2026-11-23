@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ThunderQuail settings</title>
+  <link rel="stylesheet" href="ui.css">
+  <script type="module" src="settings.mjs"></script>
+</head>
+<body class="settings">
+  <main>
+    <h1>ThunderQuail settings</h1>
+    <form id="settings">
+      <fieldset id="fields" disabled>
+        <legend>Chat and compose</legend>
+        <label for="base_url">Chat API base URL</label>
+        <input id="base_url" name="base_url" type="url" list="chat-endpoints" placeholder="http://127.0.0.1:11434/v1" aria-describedby="base-hint">
+        <datalist id="chat-endpoints">
+          <option value="http://127.0.0.1:11434/v1" label="Local Ollama"></option>
+          <option value="https://ollama.com/v1" label="Ollama Cloud"></option>
+        </datalist>
+        <small id="base-hint">Choose an Ollama endpoint or enter your own OpenAI-compatible API root. Ollama Cloud requires an API key.</small>
+
+        <label for="api_key">API key (optional)</label>
+        <input id="api_key" name="api_key" type="password" autocomplete="off" aria-describedby="key-hint">
+        <small id="key-hint">Stored locally in your Thunderbird profile as an extension setting.</small>
+
+        <label for="chat_model">Chat model</label>
+        <input id="chat_model" name="chat_model" type="text" spellcheck="false">
+
+        <button id="test-chat" type="button">Test chat connection</button>
+
+        <label for="indexer_url">Local indexer URL (optional)</label>
+        <input id="indexer_url" name="indexer_url" type="url" placeholder="http://127.0.0.1:5000">
+
+        <label for="indexer_token">Companion token</label>
+        <input id="indexer_token" name="indexer_token" type="password" autocomplete="off" aria-describedby="token-hint">
+        <small id="token-hint">Use the same value as THUNDERQUAIL_TOKEN when you start the companion.</small>
+
+        <label for="indexer_timeout">Indexed search timeout (seconds)</label>
+        <input id="indexer_timeout" name="indexer_timeout" type="number" min="1" max="60" step="1" required>
+        <small>Increase this if searching a large index needs more time. Chat continues without indexed results after this timeout.</small>
+        <small>The companion runs its Hugging Face embedding model locally.</small>
+
+        <button type="submit">Save settings</button>
+      </fieldset>
+      <p id="status" role="status">Loading settings…</p>
+    </form>
+  </main>
+</body>
+</html>

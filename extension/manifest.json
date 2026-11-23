@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "ThunderQuail",
+  "version": "0.9.0",
+  "description": "A local-first AI assistant for Thunderbird.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "thunderquail@thunderquail.local",
+      "strict_min_version": "128.0"
+    }
+  },
+  "permissions": ["storage", "messagesRead", "compose", "scripting", "accountsRead", "accountsFolders", "messagesMove"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "action": {
+    "default_title": "ThunderQuail",
+    "default_popup": "popup.html"
+  },
+  "compose_action": {
+    "default_title": "ThunderQuail",
+    "default_popup": "compose.html"
+  },
+  "options_ui": {
+    "page": "settings.html",
+    "open_in_tab": true
+  }
+}
