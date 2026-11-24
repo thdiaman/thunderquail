@@ -1,7 +1,8 @@
 import json
+import logging
 import os
 import re
-from email import policy
+from email import errors, policy
 from email.parser import BytesParser
 from hashlib import sha256
 from html.parser import HTMLParser
@@ -12,6 +13,8 @@ CHUNK_OVERLAP = 150
 _QUOTED_FROM = re.compile(rb"^>+From ")
 _HTML_BREAKS = {"blockquote", "br", "div", "h1", "h2", "h3", "hr", "li", "p", "pre", "tr"}
 _HTML_IGNORED = {"head", "script", "style", "template"}
+_MAIL_PARSE_ERRORS = (errors.MessageError, ValueError, LookupError, TypeError, RecursionError)
+_LOGGER = logging.getLogger(__name__)
 
 
 class BodyText(HTMLParser):
@@ -42,17 +45,33 @@ def fingerprint(stat):
     return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
 
 
-def read_messages(path, expected):
+def _parse_message(parser, message):
+    try:
+        return parser.parsebytes(bytes(message))
+    except _MAIL_PARSE_ERRORS as error:
+        _LOGGER.warning("Skipping a malformed MBOX message (%s).", type(error).__name__)
+        return None
+
+
+def read_messages(path, expected, *, on_position=None):
     parser = BytesParser(policy=policy.default)
     with path.open("rb") as source:
         if fingerprint(os.fstat(source.fileno())) != expected:
             raise ValueError(f"Mailbox changed before reading: {path}")
         message = None
         in_headers = False
+        offset = 0
         for line in source:
+            if on_position is not None:
+                line_start = offset
+                offset += len(line)
             if line.startswith(b"From "):
                 if message:
-                    yield parser.parsebytes(bytes(message))
+                    if on_position is not None:
+                        on_position(line_start)
+                    parsed = _parse_message(parser, message)
+                    if parsed is not None:
+                        yield parsed
                 message = bytearray()
                 in_headers = True
             elif message is not None:
@@ -64,13 +83,25 @@ def read_messages(path, expected):
             elif line.strip():
                 raise ValueError(f"File does not start with an MBOX separator: {path}")
         if message:
-            yield parser.parsebytes(bytes(message))
+            if on_position is not None:
+                on_position(expected[2])
+            parsed = _parse_message(parser, message)
+            if parsed is not None:
+                yield parsed
         if fingerprint(os.fstat(source.fileno())) != expected:
             raise ValueError(f"Mailbox changed during indexing: {path}")
 
 
 def _clean_unicode(text):
     return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _header_text(message, name, fallback):
+    try:
+        value = str(message.get(name, ""))
+    except _MAIL_PARSE_ERRORS:
+        value = " ".join(fallback.splitlines()).strip()
+    return _clean_unicode(value)
 
 
 def _body_text(message):
@@ -113,17 +144,24 @@ def _chunk_text(text):
         start = end - CHUNK_OVERLAP
 
 
-def mailbox_chunks(path, expected):
+def mailbox_chunks(path, expected, *, on_position=None):
     seen = set()
-    for message in read_messages(path, expected):
+    for message in read_messages(path, expected, on_position=on_position):
         if _expunged(message):
             continue
+        raw_headers = {}
+        for name, value in message.raw_items():
+            raw_headers.setdefault(name.lower(), value)
         metadata = {
-            key: _clean_unicode(str(message.get(header, "")))
+            key: _header_text(message, header, raw_headers.get(header.lower(), ""))
             for key, header in (("subject", "Subject"), ("from", "From"), ("to", "To"),
                                 ("date", "Date"), ("message_id", "Message-ID"))
         }
-        body = _body_text(message)
+        try:
+            body = _body_text(message)
+        except _MAIL_PARSE_ERRORS as error:
+            _LOGGER.warning("Using subject only for an unreadable MBOX body (%s).", type(error).__name__)
+            body = ""
         # The Message-ID is part of the identity. Content distinguishes reused or missing IDs.
         identity = sha256(json.dumps([metadata, body], ensure_ascii=False).encode("utf-8")).hexdigest()
         if identity in seen:

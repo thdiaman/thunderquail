@@ -132,8 +132,9 @@ def main():
             print(f"Skipped coverage: {warning}", flush=True)
         print(f"Loading local embedding model {args.embedding_model}…", flush=True)
         embedder = Embedder(args.embedding_model, args.embedding_revision)
-        print(f"Indexing {len(paths)} MBOX file(s)…", flush=True)
-        table = build_index(db_dir, paths, embedder, rebuild=args.rebuild)
+        table = build_index(db_dir, paths, embedder, rebuild=args.rebuild,
+                            report=lambda line: print(line, flush=True))
+        print(f"Index ready: {count_chunks(table):,} searchable chunks.", flush=True)
     except (EmbeddingError, OSError, ValueError, RuntimeError) as error:
         parser.exit(1, f"ThunderQuail index startup failed: {error}\n")
 

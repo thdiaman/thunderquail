@@ -8,6 +8,7 @@ from filelock import FileLock, Timeout
 
 from .embeddings import EmbeddingError
 from .mbox import fingerprint, mailbox_chunks
+from .progress import IndexProgress
 
 
 BATCH_SIZE = 32
@@ -28,20 +29,22 @@ def _key_filter(column, hashes):
     return f"{column} IN (" + ", ".join(f"'{key}'" for key in hashes) + ")"
 
 
-def _mailbox_rows(mailboxes):
+def _mailbox_rows(mailboxes, progress):
     for path, expected in mailboxes.items():
         mailbox_key = _hash(str(path))
-        for row in mailbox_chunks(path, expected):
+        for row in mailbox_chunks(path, expected, on_position=progress.position if progress else None):
             message_key = row.pop("message_key")
             yield {
                 **row,
                 "mailbox_key": mailbox_key,
                 "row_key": f"{mailbox_key}:{message_key}:{row['chunk_index']}",
             }
+        if progress:
+            progress.finish_mailbox(expected[2])
 
 
-def _embedded_batches(mailboxes, embedder, cache):
-    rows = _mailbox_rows(mailboxes)
+def _embedded_batches(mailboxes, embedder, cache, progress):
+    rows = _mailbox_rows(mailboxes, progress)
     while batch := list(itertools.islice(rows, BATCH_SIZE)):
         inputs = {}
         for row in batch:
@@ -61,6 +64,8 @@ def _embedded_batches(mailboxes, embedder, cache):
             vectors.update(zip(missing, embedder.embed(list(missing.values()))))
         for row in batch:
             row["vector"] = vectors[row["embedding_key"]]
+        if progress:
+            progress.finish_batch(len(missing), len(batch) - len(missing))
         yield batch
 
 
@@ -86,7 +91,7 @@ def count_chunks(table):
     return table.count_rows(CHUNKS_ONLY)
 
 
-def _record_batches(batches, schema, checkpoint, mailboxes):
+def _record_batches(batches, schema, checkpoint, mailboxes, progress):
     dimension = schema.field("vector").type.list_size
     for batch in batches:
         if any(len(row["vector"]) != dimension for row in batch):
@@ -95,6 +100,8 @@ def _record_batches(batches, schema, checkpoint, mailboxes):
     for path, expected in mailboxes.items():
         if fingerprint(path.stat()) != expected:
             raise ValueError(f"Mailbox changed during indexing: {path}")
+    if progress:
+        progress.finalizing()
     # Commit the files' fingerprints together with their searchable rows.
     yield pa.RecordBatch.from_pylist([{
         "row_key": CHECKPOINT_KEY, "mailbox_key": "", "text": json.dumps(checkpoint),
@@ -102,7 +109,7 @@ def _record_batches(batches, schema, checkpoint, mailboxes):
     }], schema=schema)
 
 
-def _update_index(db, paths, embedder, rebuild):
+def _update_index(db, paths, embedder, rebuild, report):
     mailboxes = {path: fingerprint(path.stat()) for path in paths}
     checkpoint = {
         "version": INDEX_VERSION,
@@ -114,13 +121,19 @@ def _update_index(db, paths, embedder, rebuild):
     compatible = (not rebuild and previous.get("version") == INDEX_VERSION
                   and previous.get("provider") == checkpoint["provider"])
     if compatible and previous == checkpoint:
+        if report is not None:
+            report(f"All {len(mailboxes):,} mailboxes unchanged. Reusing the existing index.")
         return table
 
     old_mailboxes = previous.get("mailboxes", {}) if compatible else {}
     changed = {path: expected for path, expected in mailboxes.items()
                if list(expected) != old_mailboxes.get(str(path))}
     removed = old_mailboxes.keys() - checkpoint["mailboxes"].keys()
-    batches = _embedded_batches(changed, embedder, table if compatible else None)
+    progress = None
+    if report is not None:
+        progress = IndexProgress(report, mailboxes=len(changed), unchanged=len(mailboxes) - len(changed),
+                                 removed=len(removed), total_bytes=sum(stamp[2] for stamp in changed.values()))
+    batches = _embedded_batches(changed, embedder, table if compatible else None, progress)
     first = next(batches, [])
     batches = itertools.chain([first], batches) if first else ()
     dimension = len(first[0]["vector"]) if first else 1
@@ -129,13 +142,13 @@ def _update_index(db, paths, embedder, rebuild):
                           dimension != table.schema.field("vector").type.list_size):
         schema = _schema(dimension)
         table = db.create_table(TABLE_NAME, schema=schema, mode="overwrite",
-                                data=_record_batches(batches, schema, checkpoint, mailboxes))
+                                data=_record_batches(batches, schema, checkpoint, mailboxes, progress))
         table.create_scalar_index("embedding_key")
         return table
 
     replaced_keys = [_hash(str(path)) for path in changed] + [_hash(path) for path in sorted(removed)]
     records = pa.RecordBatchReader.from_batches(
-        table.schema, _record_batches(batches, table.schema, checkpoint, mailboxes)
+        table.schema, _record_batches(batches, table.schema, checkpoint, mailboxes, progress)
     )
     (table.merge_insert("row_key")
      .when_matched_update_all(where=f"target.row_key = '{CHECKPOINT_KEY}'")
@@ -145,11 +158,11 @@ def _update_index(db, paths, embedder, rebuild):
     return table
 
 
-def build_index(db_dir, paths, embedder, *, rebuild=False):
+def build_index(db_dir, paths, embedder, *, rebuild=False, report=None):
     db_dir.mkdir(parents=True, exist_ok=True)
     try:
         with FileLock(str(db_dir / ".index.lock"), timeout=0):
-            return _update_index(lancedb.connect(str(db_dir)), paths, embedder, rebuild)
+            return _update_index(lancedb.connect(str(db_dir)), paths, embedder, rebuild, report)
     except Timeout:
         raise ValueError("Another companion is updating this index. Try again when it finishes.") from None
 

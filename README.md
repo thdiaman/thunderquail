@@ -78,6 +78,8 @@ Profile mode discovers the configured local MBOX stores and nested folders. Sear
 
 Restart the companion to rediscover folders and refresh the index. Startup skips mailboxes whose modification time, size, and file identity match the last successful scan. It rescans changed files in binary read-only mode and reuses embeddings for unchanged chunk text. After a successful scan, chunks for removed mailboxes and messages are dropped from search. If a file changes during the scan, startup stops and preserves the last successful index. For manual indexing, use repeated `--mbox` arguments instead of `--profile` and pass the full list of files each time.
 
+The console periodically reports scanned mailboxes, scan percentage by bytes, embeddings generated or reused, throughput, and an estimated time remaining. The estimate can move as mailbox contents vary. LanceDB finalization is shown separately, and **Index ready** means the update has been committed.
+
 The first startup with this release rebuilds any index made with the previous HTTP embedding backend. Changing the Hugging Face model or resolved model revision also rebuilds the index.
 
 Use a dedicated database directory outside the Thunderbird profile. The database stores searchable text locally. Indexed excerpts can still go to a remote chat provider when you select **Search indexed mail**.
