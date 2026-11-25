@@ -11,7 +11,7 @@ def main():
     manifest = json.loads((extension / "manifest.json").read_text(encoding="utf-8"))
     output = root / "dist" / f"thunderquail-{manifest['version']}.xpi"
     output.parent.mkdir(exist_ok=True)
-    asset_types = {".css", ".html", ".js", ".mjs", ".png", ".svg"}
+    asset_types = {".css", ".html", ".js", ".json", ".mjs", ".png", ".svg", ".txt"}
     assets = sorted(path for path in extension.rglob("*")
                     if path.is_file() and not path.is_symlink()
                     and not any(part.startswith(".") for part in path.relative_to(extension).parts)

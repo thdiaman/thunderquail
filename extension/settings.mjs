@@ -1,6 +1,6 @@
 import { companionSearchUrl, isCompanionToken } from "./companion-search.mjs";
 import { streamChat } from "./chat-client.mjs";
-import { chatProvider, requestProviderAccess } from "./provider.mjs";
+import { chatProvider } from "./provider.mjs";
 
 const defaults = {
   base_url: "",
@@ -85,8 +85,7 @@ document.querySelector("#test-chat").addEventListener("click", async () => {
   fields.disabled = true;
   status.textContent = "Testing the chat model with a sample prompt…";
   try {
-    const { settings, endpoint } = chatProvider(values);
-    await requestProviderAccess(endpoint);
+    const { settings } = chatProvider(values);
     const reply = await streamChat(settings, [{ role: "user", content: "Reply with OK." }],
       AbortSignal.timeout(30000), () => {});
     if (!reply.trim()) {

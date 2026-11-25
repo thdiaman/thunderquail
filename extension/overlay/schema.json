@@ -1,0 +1,13 @@
+[
+  {
+    "namespace": "quailOverlay",
+    "functions": [
+      {
+        "name": "toggle",
+        "type": "function",
+        "async": true,
+        "parameters": [{ "name": "windowId", "type": "integer" }]
+      }
+    ]
+  }
+]

@@ -6,58 +6,62 @@
   <link rel="stylesheet" href="ui.css">
   <script type="module" src="chat.mjs"></script>
 </head>
-<body class="chat">
+<body class="chat overlay-chat">
   <main>
-    <header class="controls">
-      <h1>ThunderQuail chat</h1>
-      <a href="settings.html" target="_blank" rel="noopener">Settings</a>
-      <button id="clear" type="button">Clear chat</button>
-    </header>
-    <p id="provider"></p>
     <section id="transcript" aria-label="Conversation"></section>
     <form id="chat-form">
-      <label for="prompt">Message</label>
-      <textarea id="prompt" rows="4" required></textarea>
-      <label class="mailbox-option">
-        <input id="search-index" type="checkbox" aria-describedby="index-hint" disabled>
-        Search indexed mail
-      </label>
-      <small id="index-hint">Set the local indexer URL and companion token in Settings to use indexed mail.</small>
-      <div id="scope-controls" hidden>
-        <label for="search-scope">Search scope</label>
-        <select id="search-scope" aria-describedby="scope-status">
-          <option value="all">All indexed mail</option>
-        </select>
-        <small id="scope-status" role="status"></small>
-        <details id="index-coverage" hidden>
-          <summary>Index coverage</summary>
-          <ul id="coverage-warnings"></ul>
-        </details>
-      </div>
-      <label class="mailbox-option">
-        <input id="mailbox" type="checkbox" aria-describedby="mailbox-hint">
-        Propose a mailbox action
-      </label>
-      <small id="mailbox-hint">Sends folder names and selected message subjects to the provider for this request.</small>
-      <div class="controls">
-        <button id="attach" type="button" disabled>Include email</button>
-        <button id="remove" type="button" hidden>Remove email</button>
+      <div class="composer-line">
+        <label class="visually-hidden" for="prompt">Message</label>
+        <textarea id="prompt" rows="2" placeholder="Ask about your mail…" required></textarea>
         <button id="send" type="submit" disabled>Send</button>
         <button id="stop" type="button" hidden>Stop</button>
       </div>
-      <p id="attachment"></p>
+      <div class="composer-footer">
+        <details id="chat-options">
+          <summary>Options</summary>
+          <div class="options-panel">
+            <label>
+              <input id="follow-email" type="checkbox" aria-describedby="follow-hint">
+              Follow selected email
+            </label>
+            <small id="follow-hint">Includes the open or selected email when you send.</small>
+            <label>
+              <input id="search-index" type="checkbox" aria-describedby="index-hint" disabled>
+              Search indexed mail
+            </label>
+            <small id="index-hint">Set the local indexer URL and companion token in Settings.</small>
+            <div id="scope-controls" hidden>
+              <label for="search-scope">Search scope</label>
+              <select id="search-scope" aria-describedby="scope-status">
+                <option value="all">All indexed mail</option>
+              </select>
+              <small id="scope-status" role="status"></small>
+              <details id="index-coverage" hidden>
+                <summary>Index coverage</summary>
+                <ul id="coverage-warnings"></ul>
+              </details>
+            </div>
+            <div class="controls options-links">
+              <button id="attach" type="button" disabled>Include once</button>
+              <button id="remove" type="button" hidden>Remove email</button>
+              <button id="settings" type="button">Settings</button>
+              <button id="clear" type="button">New chat</button>
+            </div>
+            <p id="provider"></p>
+          </div>
+        </details>
+        <p id="attachment" aria-live="polite"></p>
+      </div>
       <p id="status" role="status">Loading settings…</p>
     </form>
   </main>
-  <dialog id="confirm-mailbox" aria-labelledby="confirm-title">
-    <form method="dialog">
+  <section id="confirm-mailbox" aria-labelledby="confirm-title" hidden>
       <h2 id="confirm-title">Confirm mailbox action</h2>
       <p id="mailbox-description"></p>
       <div class="controls">
-        <button value="cancel" autofocus>Cancel</button>
-        <button value="apply">Apply action</button>
+        <button id="cancel-action" type="button">Cancel</button>
+        <button id="apply-action" type="button">Apply action</button>
       </div>
-    </form>
-  </dialog>
+  </section>
 </body>
 </html>

@@ -1,12 +1,16 @@
 import itertools
 import json
 from hashlib import sha256
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import lancedb
 import pyarrow as pa
 from filelock import FileLock, Timeout
 
+from .embedding_cache import EmbeddingCache
 from .embeddings import EmbeddingError
+from .mailbox_snapshot import copy_stable_mailbox
 from .mbox import fingerprint, mailbox_chunks
 from .progress import IndexProgress
 
@@ -29,13 +33,19 @@ def _key_filter(column, hashes):
     return f"{column} IN (" + ", ".join(f"'{key}'" for key in hashes) + ")"
 
 
-def _mailbox_rows(mailboxes, progress):
+def _mailbox_rows(mailboxes, progress, snapshot, fingerprints):
     for path, expected in mailboxes.items():
+        source = path
+        if snapshot is not None:
+            fingerprints[path] = copy_stable_mailbox(path, snapshot)
+            source = snapshot
+            expected = fingerprint(snapshot.stat())
         mailbox_key = _hash(str(path))
-        for row in mailbox_chunks(path, expected, on_position=progress.position if progress else None):
+        for row in mailbox_chunks(source, expected, on_position=progress.position if progress else None):
             message_key = row.pop("message_key")
             yield {
                 **row,
+                "mailbox": str(path),
                 "mailbox_key": mailbox_key,
                 "row_key": f"{mailbox_key}:{message_key}:{row['chunk_index']}",
             }
@@ -43,17 +53,18 @@ def _mailbox_rows(mailboxes, progress):
             progress.finish_mailbox(expected[2])
 
 
-def _embedded_batches(mailboxes, embedder, cache, progress):
-    rows = _mailbox_rows(mailboxes, progress)
+def _embedded_batches(mailboxes, embedder, cache, durable, progress, snapshot, fingerprints):
+    rows = _mailbox_rows(mailboxes, progress, snapshot, fingerprints)
     while batch := list(itertools.islice(rows, BATCH_SIZE)):
         inputs = {}
         for row in batch:
             text = f"Subject: {row['subject']}\n\n{row['text']}"
             row["embedding_key"] = _hash(text)
             inputs[row["embedding_key"]] = text
-        vectors = {}
-        if cache is not None:
-            query = cache.search().where(_key_filter("embedding_key", inputs)).select(["embedding_key", "vector"])
+        vectors = durable.lookup(inputs)
+        uncached = inputs.keys() - vectors.keys()
+        if cache is not None and uncached:
+            query = cache.search().where(_key_filter("embedding_key", uncached)).select(["embedding_key", "vector"])
             for matches in query.to_batches(batch_size=128):
                 for match in matches.to_pylist():
                     vectors[match["embedding_key"]] = match["vector"]
@@ -61,7 +72,9 @@ def _embedded_batches(mailboxes, embedder, cache, progress):
                     break
         missing = {key: text for key, text in inputs.items() if key not in vectors}
         if missing:
-            vectors.update(zip(missing, embedder.embed(list(missing.values()))))
+            generated = dict(zip(missing, embedder.embed(list(missing.values())), strict=True))
+            durable.save(generated)
+            vectors.update(generated)
         for row in batch:
             row["vector"] = vectors[row["embedding_key"]]
         if progress:
@@ -91,15 +104,18 @@ def count_chunks(table):
     return table.count_rows(CHUNKS_ONLY)
 
 
-def _record_batches(batches, schema, checkpoint, mailboxes, progress):
+def _record_batches(batches, schema, checkpoint, mailboxes, progress, snapshot):
     dimension = schema.field("vector").type.list_size
     for batch in batches:
         if any(len(row["vector"]) != dimension for row in batch):
             raise EmbeddingError("Embedding vector dimensions changed. Restart with --rebuild.")
         yield pa.RecordBatch.from_pylist(batch, schema=schema)
-    for path, expected in mailboxes.items():
-        if fingerprint(path.stat()) != expected:
-            raise ValueError(f"Mailbox changed during indexing: {path}")
+    if snapshot is None:
+        for path, expected in mailboxes.items():
+            if fingerprint(path.stat()) != expected:
+                raise ValueError(f"Mailbox changed during indexing: {path}")
+    else:
+        checkpoint["mailboxes"] = {str(path): list(expected) for path, expected in mailboxes.items()}
     if progress:
         progress.finalizing()
     # Commit the files' fingerprints together with their searchable rows.
@@ -109,14 +125,20 @@ def _record_batches(batches, schema, checkpoint, mailboxes, progress):
     }], schema=schema)
 
 
-def _update_index(db, paths, embedder, rebuild, report):
+def _update_index(db, paths, embedder, rebuild, report, durable, snapshot):
     mailboxes = {path: fingerprint(path.stat()) for path in paths}
     checkpoint = {
         "version": INDEX_VERSION,
         "provider": embedder.identity,
         "mailboxes": {str(path): list(expected) for path, expected in mailboxes.items()},
     }
-    table = db.open_table(TABLE_NAME) if TABLE_NAME in db.list_tables().tables else None
+    try:
+        table = db.open_table(TABLE_NAME)
+    except ValueError as error:
+        # A failed first build can leave a directory without a committed manifest.
+        if str(error) != f"Table '{TABLE_NAME}' was not found":
+            raise
+        table = None
     previous = _read_checkpoint(table)
     compatible = (not rebuild and previous.get("version") == INDEX_VERSION
                   and previous.get("provider") == checkpoint["provider"])
@@ -133,7 +155,8 @@ def _update_index(db, paths, embedder, rebuild, report):
     if report is not None:
         progress = IndexProgress(report, mailboxes=len(changed), unchanged=len(mailboxes) - len(changed),
                                  removed=len(removed), total_bytes=sum(stamp[2] for stamp in changed.values()))
-    batches = _embedded_batches(changed, embedder, table if compatible else None, progress)
+    batches = _embedded_batches(changed, embedder, table if compatible else None, durable,
+                                progress, snapshot, mailboxes)
     first = next(batches, [])
     batches = itertools.chain([first], batches) if first else ()
     dimension = len(first[0]["vector"]) if first else 1
@@ -142,13 +165,13 @@ def _update_index(db, paths, embedder, rebuild, report):
                           dimension != table.schema.field("vector").type.list_size):
         schema = _schema(dimension)
         table = db.create_table(TABLE_NAME, schema=schema, mode="overwrite",
-                                data=_record_batches(batches, schema, checkpoint, mailboxes, progress))
+                                data=_record_batches(batches, schema, checkpoint, mailboxes, progress, snapshot))
         table.create_scalar_index("embedding_key")
         return table
 
     replaced_keys = [_hash(str(path)) for path in changed] + [_hash(path) for path in sorted(removed)]
     records = pa.RecordBatchReader.from_batches(
-        table.schema, _record_batches(batches, table.schema, checkpoint, mailboxes, progress)
+        table.schema, _record_batches(batches, table.schema, checkpoint, mailboxes, progress, snapshot)
     )
     (table.merge_insert("row_key")
      .when_matched_update_all(where=f"target.row_key = '{CHECKPOINT_KEY}'")
@@ -158,11 +181,25 @@ def _update_index(db, paths, embedder, rebuild, report):
     return table
 
 
-def build_index(db_dir, paths, embedder, *, rebuild=False, report=None):
+def build_index(db_dir, paths, embedder, *, rebuild=False, report=None, snapshot_mailboxes=False):
     db_dir.mkdir(parents=True, exist_ok=True)
     try:
         with FileLock(str(db_dir / ".index.lock"), timeout=0):
-            return _update_index(lancedb.connect(str(db_dir)), paths, embedder, rebuild, report)
+            cache_key = _hash(json.dumps([embedder.identity, rebuild]))
+            cache_path = db_dir / f".pending-embeddings-{cache_key}.sqlite"
+            durable = EmbeddingCache(cache_path)
+            try:
+                db = lancedb.connect(str(db_dir))
+                if snapshot_mailboxes:
+                    with TemporaryDirectory(prefix=".mailbox-snapshot-", dir=db_dir) as directory:
+                        table = _update_index(db, paths, embedder, rebuild, report, durable,
+                                              Path(directory) / "mailbox.mbox")
+                else:
+                    table = _update_index(db, paths, embedder, rebuild, report, durable, None)
+            finally:
+                durable.close()
+            cache_path.unlink(missing_ok=True)
+            return table
     except Timeout:
         raise ValueError("Another companion is updating this index. Try again when it finishes.") from None
 

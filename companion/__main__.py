@@ -2,11 +2,13 @@ import argparse
 import hmac
 import os
 import re
+import sqlite3
 from pathlib import Path
 
 from flask import Flask, jsonify, request
 
 from .embeddings import DEFAULT_MODEL, Embedder, EmbeddingError
+from .gpu_embeddings import GpuEmbedder
 from .index import build_index, count_chunks, search_index
 from .profile import Mailbox, build_scopes, discover_profile
 
@@ -93,6 +95,7 @@ def main():
     parser.add_argument("--embedding-model", default=DEFAULT_MODEL,
                         help=f"Hugging Face model ID (default: {DEFAULT_MODEL}).")
     parser.add_argument("--embedding-revision", help="Hugging Face model revision or commit.")
+    parser.add_argument("--gpu-url", help="Loopback URL of the GPU SSH tunnel for bulk embeddings.")
     parser.add_argument("--check-embeddings", action="store_true",
                         help="Run local inference on synthetic text without opening any mail.")
     args = parser.parse_args()
@@ -102,6 +105,9 @@ def main():
             embedder = Embedder(args.embedding_model, args.embedding_revision)
             vector, = embedder.embed(["ThunderQuail embedding check."], query=True)
             print(f"Embedding model responded with a {len(vector)}-dimensional vector.")
+            if args.gpu_url:
+                GpuEmbedder(args.gpu_url, os.environ.get("THUNDERQUAIL_GPU_TOKEN", ""), embedder)
+                print("GPU endpoint is reachable and matches the local model.")
         except (EmbeddingError, ValueError) as error:
             parser.exit(1, f"ThunderQuail embedding setup failed: {error}\n")
         return
@@ -132,10 +138,14 @@ def main():
             print(f"Skipped coverage: {warning}", flush=True)
         print(f"Loading local embedding model {args.embedding_model}…", flush=True)
         embedder = Embedder(args.embedding_model, args.embedding_revision)
-        table = build_index(db_dir, paths, embedder, rebuild=args.rebuild,
-                            report=lambda line: print(line, flush=True))
+        bulk_embedder = embedder
+        if args.gpu_url:
+            bulk_embedder = GpuEmbedder(args.gpu_url, os.environ.get("THUNDERQUAIL_GPU_TOKEN", ""), embedder)
+            print("GPU endpoint verified. Bulk embeddings will use CUDA through the tunnel.", flush=True)
+        table = build_index(db_dir, paths, bulk_embedder, rebuild=args.rebuild,
+                            report=lambda line: print(line, flush=True), snapshot_mailboxes=bool(args.gpu_url))
         print(f"Index ready: {count_chunks(table):,} searchable chunks.", flush=True)
-    except (EmbeddingError, OSError, ValueError, RuntimeError) as error:
+    except (EmbeddingError, OSError, ValueError, RuntimeError, sqlite3.Error) as error:
         parser.exit(1, f"ThunderQuail index startup failed: {error}\n")
 
     app = create_app(table, embedder, token, scopes=build_scopes(mailboxes), warnings=warnings)

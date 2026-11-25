@@ -6,17 +6,18 @@ function htmlToText(html) {
   return template.content.textContent.trim();
 }
 
-export async function readEmailContext(sourceTabId) {
-  const tab = await browser.tabs.get(sourceTabId);
+export async function selectedEmail(tab) {
+  if (!tab) {
+    return null;
+  }
   const list = tab.type === "mail"
     ? await browser.mailTabs.getSelectedMessages(tab.id)
     : await browser.messageDisplay.getDisplayedMessages(tab.id);
   const messages = list.messages ?? list;
-  if (messages.length !== 1 || list.id) {
-    throw new Error("Select or open exactly one email in the source tab.");
-  }
+  return messages.length === 1 && !list.id ? messages[0] : null;
+}
 
-  const message = messages[0];
+export async function readEmailContext(message) {
   const parts = await browser.messages.listInlineTextParts(message.id);
   const plain = parts.filter(part => part.contentType === "text/plain")
     .map(part => part.content.trim()).filter(Boolean).join("\n\n");

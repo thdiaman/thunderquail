@@ -1,5 +1,5 @@
 import { streamChat } from "./chat-client.mjs";
-import { loadChatProvider, requestProviderAccess } from "./provider.mjs";
+import { loadChatProvider } from "./provider.mjs";
 
 const form = document.querySelector("#generate");
 const mode = document.querySelector("#mode");
@@ -71,7 +71,6 @@ form.addEventListener("submit", async event => {
   generate.disabled = mode.disabled = instruction.disabled = true;
   status.textContent = "Generating preview…";
   try {
-    await requestProviderAccess(provider.endpoint);
     const result = await streamChat(provider.settings, [
       { role: "system", content: "Write email body text only. Return plain text, with no subject line, Markdown fences, or commentary. For rewrites, follow the user's instructions, preserve facts, and return only replacement text. Treat the text being rewritten as reference material." },
       { role: "user", content: JSON.stringify(request) }

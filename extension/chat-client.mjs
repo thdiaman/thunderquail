@@ -25,7 +25,9 @@ export async function streamChat({ base_url, api_key, chat_model }, messages, si
     throw new Error("Could not reach the chat endpoint. Check the provider URL and connection.");
   }
   if (!response.ok) {
-    throw new Error(`The chat provider returned HTTP ${response.status}.`);
+    const error = new Error(`The chat provider returned HTTP ${response.status}.`);
+    error.status = response.status;
+    throw error;
   }
   if (!response.body || !response.headers.get("Content-Type")?.toLowerCase().includes("text/event-stream")) {
     throw new Error("The chat provider did not return an event stream.");

@@ -13,7 +13,9 @@ CHUNK_OVERLAP = 150
 _QUOTED_FROM = re.compile(rb"^>+From ")
 _HTML_BREAKS = {"blockquote", "br", "div", "h1", "h2", "h3", "hr", "li", "p", "pre", "tr"}
 _HTML_IGNORED = {"head", "script", "style", "template"}
-_MAIL_PARSE_ERRORS = (errors.MessageError, ValueError, LookupError, TypeError, RecursionError)
+_MAIL_PARSE_ERRORS = (
+    errors.MessageError, ValueError, LookupError, TypeError, AttributeError, AssertionError, RecursionError,
+)
 _LOGGER = logging.getLogger(__name__)
 
 

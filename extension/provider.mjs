@@ -23,10 +23,3 @@ export async function loadChatProvider() {
   }
   return chatProvider(settings);
 }
-
-export async function requestProviderAccess(endpoint) {
-  const origin = `${endpoint.protocol}//${endpoint.hostname}/*`;
-  if (!await browser.permissions.request({ origins: [origin] })) {
-    throw new Error("Provider access was declined.");
-  }
-}
