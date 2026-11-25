@@ -323,11 +323,22 @@ body {
   margin-inline-start: 6px;
 }
 
-.overlay-chat #confirm-mailbox {
+.overlay-chat #confirm-mailbox,
+.overlay-chat #confirm-sharing,
+.overlay-chat #confirm-reply {
   margin-top: 8px;
   padding: 8px;
   border: 1px solid GrayText;
   border-radius: 6px;
+}
+
+#sharing-preview,
+#reply-preview {
+  max-height: min(30vh, 14rem);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
 }
 
 .visually-hidden {

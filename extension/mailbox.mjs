@@ -30,9 +30,10 @@ export function isRemovalRequest(question) {
 
 export function collectToolDelta(calls, delta) {
   if (delta.index !== 0 || (delta.type && delta.type !== "function")) {
-    throw new Error("Request one mailbox action at a time.");
+    throw new Error("The chat provider requested more than one tool or an unsupported tool type.");
   }
   const call = calls[0] ??= { name: "", arguments: "" };
+  if (delta.id) call.id = delta.id;
   call.name += delta.function?.name ?? "";
   call.arguments += delta.function?.arguments ?? "";
 }

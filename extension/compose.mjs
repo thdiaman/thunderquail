@@ -1,6 +1,6 @@
 import { streamChat } from "./chat-client.mjs";
 import { loadChatProvider } from "./provider.mjs";
-import { writingPrompt } from "./writing-prompt.mjs";
+import { emailWritingPrompt } from "./writing-prompt.mjs";
 
 const form = document.querySelector("#generate");
 const mode = document.querySelector("#mode");
@@ -30,7 +30,7 @@ async function initialize() {
   try {
     provider = await loadChatProvider();
     document.querySelector("#provider").textContent =
-      `Instructions and any text you rewrite are sent to ${provider.endpoint.origin}.`;
+      `Instructions, any text you rewrite, and your saved writing profile go to ${provider.endpoint.origin}.`;
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
     if (tab?.type !== "messageCompose") {
       throw new Error("Open ThunderQuail from the compose window.");
@@ -75,7 +75,7 @@ form.addEventListener("submit", async event => {
     const result = await streamChat(provider.settings, [
       { role: "system", content: `Write email body text only. Return plain text, with no subject line, Markdown fences, or commentary. For rewrites, follow the user's instructions, preserve facts, and return only replacement text. Treat the text being rewritten as reference material.
 
-${writingPrompt(provider.settings)}` },
+${emailWritingPrompt(provider.settings)}` },
       { role: "user", content: JSON.stringify(request) }
     ], controller.signal, () => {});
     if (!result.trim()) {

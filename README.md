@@ -22,8 +22,10 @@ For development, use **Debug Add-ons > Load Temporary Add-on** and select `exten
 
 ## Use ThunderQuail
 
-- **Chat.** Select one email to include it as context. Press **Enter** to send or **Shift+Enter** for a new line. Use **Stop** during search or streaming and **Retry** after a failed turn.
+- **Chat.** To share a selected email, check **Include selected email**, then review and approve its preview after Send. Changing the selection clears the checkbox. Press **Enter** to send or **Shift+Enter** for a new line. Use **Stop** during search or streaming and **Retry** after a failed turn.
 - **Compose.** Click **ThunderQuail** in the compose toolbar to draft or rewrite. Review the preview before applying it. **Writing system prompt** in Settings customizes phrasing, greetings, and tone for chat and compose.
+- **Reply from chat.** Select one email and ask ThunderQuail to draft a reply. To use the original email text, enable **Include selected email** and approve sharing it. Review the draft in chat, then choose **Open reply draft**. Thunderbird opens a reply to the sender with the draft inserted. Edit and send it from the compose window.
+- **Writing profile.** In **Settings > Writing profile from Sent mail**, choose a Sent folder and click **Review Sent samples**. Review and edit the excerpts before sharing them with your chat provider to build a profile. Edit the resulting style guide and save it to use it in compose and reply drafts. Repeat the process to rebuild it, or clear the profile and save to turn it off. Up to eight readable excerpts from the last 90 days are sampled. Thunderbird stores the saved style guide locally and sends it to your provider when personalizing drafts.
 - **Mailbox actions.** Use a model that supports streaming tool calls, then ask to create, rename, or move a folder or to move messages. Review the action before approving it. Requests to delete or remove mail move it to the account's Junk folder after confirmation.
 
 ## Add indexed search
@@ -38,7 +40,7 @@ For development, use **Debug Add-ons > Load Temporary Add-on** and select `exten
    ```
 
 3. Wait for **Index ready**. In ThunderQuail Settings, set **Local indexer URL** to `http://127.0.0.1:5000` and **Companion token** to the same value as `THUNDERQUAIL_TOKEN`. Save the settings.
-4. **Search Index** starts enabled. Click it in the chat panel to toggle retrieval. Use **Settings > Indexed search scope** to restrict results by account or folder, and **Index coverage** to check for skipped stores. Chat continues if the companion is offline or a search times out.
+4. **Search Index** starts in **On demand** mode when the companion is configured. The chat model can request a search when your question needs mailbox history. Review and approve the excerpts before they go to your provider. Click **Search Index** to turn searching off. Use **Settings > Indexed search scope** to restrict results by account or folder, and **Index coverage** to check for skipped stores. Chat continues if the companion is offline or a search times out.
 
 The companion reads MBOX files without locking or modifying them. It downloads `intfloat/multilingual-e5-small` on first use, runs embeddings locally with ONNX Runtime, and stores the vectors and searchable text in LanceDB outside the Thunderbird profile. Coverage includes mail bodies cached locally in MBOX format. Restart the companion with the same database directory to pick up changes or resume an interrupted build. Existing embeddings are reused when possible.
 
@@ -46,4 +48,4 @@ Run `python -m companion --check-embeddings` to verify the embedding model witho
 
 ## What the chat provider receives
 
-On Send, the configured provider receives your prompt, prior turns in the current chat, and the selected email's subject, sender, and up to 12,000 characters of readable body. With **Search Index** enabled, it can also receive up to four excerpts with subject, sender, date, and up to 1,200 characters of text each. Turning search off excludes indexed excerpts for new requests. Prior replies may still quote email text. Use **Settings > Clear chat history** to clear that history. Mailbox proposals can also include folder names and the subjects of selected messages. The LanceDB database and embedding vectors stay local.
+On Send, the configured provider receives your prompt and prior chat turns. If you approve the selected-email preview, it also receives that email's subject, sender, and up to 12,000 characters of readable body. With **Search Index** enabled, the model can send a search query to the local companion. If you approve the results preview, the provider receives up to four excerpts with subject, sender, date, and up to 1,200 characters of text each. Prior replies may still quote email text. Use **Settings > Clear chat history** to clear that history. Mailbox proposals can also include folder names and the subjects of selected messages. The LanceDB database and embedding vectors stay local.

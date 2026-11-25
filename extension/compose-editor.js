@@ -47,6 +47,11 @@
         if (body.innerText.trim()) {
           text = "\n\n" + text;
         }
+      } else if (mode === "reply") {
+        range.collapse(true);
+        if (body.innerText.trim()) {
+          text += "\n\n";
+        }
       } else if (mode !== "body") {
         return { error: "Unknown compose action." };
       }

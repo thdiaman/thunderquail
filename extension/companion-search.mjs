@@ -71,15 +71,11 @@ export async function searchIndexedMail(configuration, query, signal, scope = "a
   }
 }
 
-export function buildChatMessage(question, attachedEmail, matches = []) {
+export function buildChatMessage(question, attachedEmail) {
   return {
     role: "user",
-    content: attachedEmail || matches.length
-      ? JSON.stringify({
-        request: question,
-        ...(attachedEmail && { email_context: attachedEmail.text }),
-        ...(matches.length && { indexed_mail: matches })
-      })
+    content: attachedEmail
+      ? JSON.stringify({ request: question, email_context: attachedEmail.text })
       : question
   };
 }
