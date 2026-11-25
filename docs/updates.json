@@ -1,7 +1,12 @@
 {
   "addons": {
     "thunderquail@thunderquail.local": {
-      "updates": []
+      "updates": [
+        {
+          "version": "0.12.4",
+          "update_link": "https://github.com/thdiaman/thunderquail/releases/download/v0.12.4/thunderquail-github.xpi"
+        }
+      ]
     }
   }
 }
