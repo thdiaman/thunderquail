@@ -6,7 +6,8 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "thunderquail@thunderquail.local",
-      "strict_min_version": "128.0"
+      "strict_min_version": "128.0",
+      "update_url": "https://thdiaman.github.io/thunderquail/updates.json"
     }
   },
   "permissions": ["storage", "messagesRead", "compose", "scripting", "accountsRead", "accountsFolders", "messagesMove"],

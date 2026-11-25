@@ -1,5 +1,6 @@
 """Build the installable Thunderbird XPI without local configuration or data."""
 
+import argparse
 import json
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
@@ -7,10 +8,15 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 def main():
     root = Path(__file__).resolve().parent
-    extension = root / "extension"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, default=root / "extension")
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+
+    extension = args.source
     manifest = json.loads((extension / "manifest.json").read_text(encoding="utf-8"))
-    output = root / "dist" / f"thunderquail-{manifest['version']}.xpi"
-    output.parent.mkdir(exist_ok=True)
+    output = args.output or root / "dist" / f"thunderquail-{manifest['version']}.xpi"
+    output.parent.mkdir(parents=True, exist_ok=True)
     asset_types = {".css", ".html", ".js", ".json", ".mjs", ".png", ".svg", ".txt"}
     assets = sorted(path for path in extension.rglob("*")
                     if path.is_file() and not path.is_symlink()

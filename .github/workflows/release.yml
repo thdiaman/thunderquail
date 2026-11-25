@@ -1,0 +1,112 @@
+name: Release ThunderQuail
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+concurrency:
+  group: thunderquail-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and package both channels
+        id: package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,3}$ ]] ||
+             ! jq -e --arg version "$version" '.version == $version' extension/manifest.json >/dev/null; then
+            echo "::error::The tag must be v followed by the numeric version in extension/manifest.json."
+            exit 1
+          fi
+          addon_id=$(jq -er '.browser_specific_settings.gecko.id | select(length > 0)' extension/manifest.json)
+          jq -e '.browser_specific_settings.gecko.update_url == "https://thdiaman.github.io/thunderquail/updates.json"' extension/manifest.json >/dev/null
+
+          atn_source=$(mktemp -d)
+          cp -a extension/. "$atn_source/"
+          jq 'del(.browser_specific_settings.gecko.update_url)' extension/manifest.json > "$atn_source/manifest.json"
+          python3 package_extension.py --output dist/thunderquail-github.xpi
+          python3 package_extension.py --source "$atn_source" --output dist/thunderquail-atn.xpi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "addon_id=$addon_id" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare the update feed on main
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+          ADDON_ID: ${{ steps.package.outputs.addon_id }}
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "::error::Tag a commit that is already on main."
+            exit 1
+          }
+          git checkout --detach origin/main
+          update_link="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/thunderquail-github.xpi"
+          jq --arg id "$ADDON_ID" --arg version "$VERSION" --arg link "$update_link" '
+            def version_parts: split(".") | map(tonumber) | (. + [0, 0, 0])[:4];
+            .addons[$id].updates |= (
+              if any(.[]; .version != $version and (.version | version_parts) >= ($version | version_parts))
+              then error("Release version must be newer than the version advertised on main")
+              else [{version: $version, update_link: $link}]
+              end
+            )
+          ' docs/updates.json > "$RUNNER_TEMP/updates.json"
+          mv "$RUNNER_TEMP/updates.json" docs/updates.json
+
+      - name: Publish the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --json isDraft > "$RUNNER_TEMP/release.json"; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "$GITHUB_REF_NAME" --generate-notes
+            gh release view "$GITHUB_REF_NAME" --json isDraft > "$RUNNER_TEMP/release.json"
+          fi
+
+          if jq -e '.isDraft' "$RUNNER_TEMP/release.json" >/dev/null; then
+            gh release upload "$GITHUB_REF_NAME" dist/thunderquail-github.xpi dist/thunderquail-atn.xpi --clobber
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          else
+            published=$(mktemp -d)
+            gh release download "$GITHUB_REF_NAME" --pattern 'thunderquail-*.xpi' --dir "$published"
+            cmp dist/thunderquail-github.xpi "$published/thunderquail-github.xpi"
+            cmp dist/thunderquail-atn.xpi "$published/thunderquail-atn.xpi"
+          fi
+
+      - name: Commit the update feed
+        run: |
+          if ! git diff --quiet -- docs/updates.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/updates.json
+            git commit -m "Update ThunderQuail feed for $GITHUB_REF_NAME"
+            git push origin HEAD:refs/heads/main
+          fi
+
+      - name: Upload the Pages site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

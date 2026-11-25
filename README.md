@@ -4,12 +4,21 @@ ThunderQuail adds streaming chat, email drafting, and confirmed mailbox actions 
 
 ## Install and configure the extension
 
+For published builds, see the [downloads and channel-switching guide](https://thdiaman.github.io/thunderquail/). To build and install from source, follow the steps below.
+
 1. Run `python package_extension.py` from the repository root.
 2. In Thunderbird 128 or later, open **Add-ons and Themes > Extensions > gear icon > Install Add-on From File**. Select the XPI in `dist/`. Thunderbird prompts for extra permissions because the in-window panel uses an Experiment API.
 3. Click the quail icon in the Mail window, then **Settings**. Enter an OpenAI-compatible API base URL ending in `/v1`, the model name, and its API key if required. Examples include local Ollama at `http://127.0.0.1:11434/v1` and Ollama Cloud at `https://ollama.com/v1`.
 4. Click **Test chat connection**, grant access to the provider when prompted, then click **Save settings**.
 
 For development, use **Debug Add-ons > Load Temporary Add-on** and select `extension/manifest.json`. Use **Reload** there after making changes.
+
+## Publish a release
+
+1. In the GitHub repository's **Settings > Pages**, set the source to **GitHub Actions**. Allow release tags in the `github-pages` environment if deployment restrictions apply. The release workflow's `GITHUB_TOKEN` needs permission to push the feed commit to `main`.
+2. Set the release version in `extension/manifest.json` and land the change on `main`. Tag that commit with `v` followed by the exact manifest version, such as `v0.12.4`, and push the tag. Wait for the release workflow to finish before pushing the next release tag.
+3. Verify the [published update feed](https://thdiaman.github.io/thunderquail/updates.json) points to the new GitHub XPI. The workflow publishes both packages before it commits the new feed and deploys GitHub Pages. If a run fails after publishing the release, rerun it from the same tag.
+4. Download `thunderquail-atn.xpi` from the release and submit it manually to Add-ons for Thunderbird (ATN). Once the listing is public, replace the search link in `docs/index.html` with the direct listing URL.
 
 ## Use ThunderQuail
 
