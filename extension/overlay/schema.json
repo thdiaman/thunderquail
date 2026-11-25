@@ -6,7 +6,10 @@
         "name": "toggle",
         "type": "function",
         "async": true,
-        "parameters": [{ "name": "windowId", "type": "integer" }]
+        "parameters": [
+          { "name": "windowId", "type": "integer" },
+          { "name": "visible", "type": "boolean", "optional": true }
+        ]
       }
     ]
   }

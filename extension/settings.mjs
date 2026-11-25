@@ -1,19 +1,30 @@
-import { companionSearchUrl, isCompanionToken } from "./companion-search.mjs";
+import { companionSearchUrl, isCompanionToken, loadSearchScopes } from "./companion-search.mjs";
 import { streamChat } from "./chat-client.mjs";
 import { chatProvider } from "./provider.mjs";
+import { DEFAULT_WRITING_PROMPT } from "./writing-prompt.mjs";
 
 const defaults = {
   base_url: "",
   api_key: "",
   chat_model: "",
+  writing_prompt: DEFAULT_WRITING_PROMPT,
   indexer_url: "",
   indexer_token: "",
-  indexer_timeout: "2"
+  indexer_timeout: "2",
+  indexer_scope: "all"
 };
 
 const form = document.querySelector("#settings");
 const fields = document.querySelector("#fields");
 const status = document.querySelector("#status");
+const coverage = document.querySelector("#index-coverage");
+const coverageStatus = document.querySelector("#coverage-status");
+const coverageWarnings = document.querySelector("#coverage-warnings");
+const refreshCoverageButton = document.querySelector("#refresh-coverage");
+const indexerUrl = form.elements.namedItem("indexer_url");
+const scopeSelect = form.elements.namedItem("indexer_scope");
+let catalogRequest;
+let scopesLoaded = false;
 
 function validateUrl(input) {
   input.setCustomValidity("");
@@ -52,12 +63,47 @@ for (const name of ["base_url", "indexer_url"]) {
   input.addEventListener("input", () => validateUrl(input));
 }
 
+function setScopes(scopes, selected) {
+  const groups = new Map();
+  for (const [kind, label] of [["account", "Accounts"], ["folder", "Folders"], ["subtree", "Folders and subfolders"]]) {
+    const group = document.createElement("optgroup");
+    group.label = label;
+    groups.set(kind, group);
+  }
+  for (const scope of scopes) {
+    const group = groups.get(scope?.kind);
+    if (!group || typeof scope.label !== "string" || !/^[a-f0-9]{64}$/.test(scope.id)) continue;
+    group.append(new Option(scope.label, scope.id));
+  }
+  scopeSelect.replaceChildren(new Option("All indexed mail", "all"),
+    ...[...groups.values()].filter(group => group.childElementCount));
+  scopeSelect.value = selected;
+  if (!scopeSelect.value) scopeSelect.value = "all";
+}
+
+for (const input of [indexerUrl, tokenInput]) {
+  input.addEventListener("change", () => {
+    catalogRequest = undefined;
+    scopesLoaded = false;
+    refreshCoverageButton.disabled = false;
+    coverageWarnings.replaceChildren();
+    coverageWarnings.hidden = true;
+    coverageStatus.textContent = "";
+    if (input === indexerUrl) setScopes([], "all");
+    if (coverage.open) refreshCoverage();
+  });
+}
+
 async function loadSettings() {
   try {
     const saved = await browser.storage.local.get(defaults);
+    if (/^[a-f0-9]{64}$/.test(saved.indexer_scope)) {
+      scopeSelect.append(new Option("Saved folder scope", saved.indexer_scope));
+    }
     for (const name of Object.keys(defaults)) {
       form.elements.namedItem(name).value = saved[name];
     }
+    if (!scopeSelect.value) scopeSelect.value = "all";
     fields.disabled = false;
     status.textContent = "";
   } catch {
@@ -77,6 +123,68 @@ function readForm() {
   return Object.fromEntries([...new FormData(form)].map(([name, value]) => [name, value.trim()]));
 }
 
+async function refreshCoverage() {
+  if (catalogRequest) return;
+  coverageWarnings.replaceChildren();
+  coverageWarnings.hidden = true;
+  let url;
+  const token = tokenInput.value.trim();
+  try {
+    url = companionSearchUrl(indexerUrl.value.trim());
+    if (!isCompanionToken(token)) throw new Error();
+  } catch {
+    coverageStatus.textContent = "Enter the local indexer URL and companion token to check coverage.";
+    return;
+  }
+  refreshCoverageButton.disabled = true;
+  coverageStatus.textContent = "Checking index coverage…";
+  const pending = loadSearchScopes({ url, token });
+  catalogRequest = pending;
+  const catalog = await pending;
+  if (catalogRequest !== pending) return;
+  catalogRequest = undefined;
+  refreshCoverageButton.disabled = false;
+  if (!catalog) {
+    coverageStatus.textContent = "Index coverage is unavailable. Check that the companion is running and the token matches.";
+    return;
+  }
+  setScopes(catalog.scopes, scopeSelect.value);
+  scopesLoaded = true;
+  for (const warning of catalog.warnings) {
+    // Older companions reported summary-only folders even when empty.
+    if (typeof warning !== "string" || warning.endsWith(" has no local MBOX file.")) continue;
+    const item = document.createElement("li");
+    item.textContent = warning;
+    coverageWarnings.append(item);
+  }
+  coverageWarnings.hidden = !coverageWarnings.childElementCount;
+  coverageStatus.textContent = coverageWarnings.hidden ? "No local index coverage warnings reported." : "";
+}
+
+coverage.addEventListener("toggle", () => {
+  if (coverage.open && !refreshCoverageButton.disabled) refreshCoverage();
+});
+refreshCoverageButton.addEventListener("click", refreshCoverage);
+scopeSelect.addEventListener("focus", () => {
+  if (!scopesLoaded) refreshCoverage();
+});
+
+document.querySelector("#clear-chat").addEventListener("click", async () => {
+  try {
+    await browser.storage.local.set({ clear_chat: crypto.randomUUID() });
+    status.textContent = "Chat history cleared. Any active reply will clear when it ends.";
+  } catch {
+    status.textContent = "Could not clear chat history.";
+  }
+});
+
+async function requestChatAccess(endpoint) {
+  const origin = `${endpoint.protocol}//${endpoint.hostname}/*`;
+  if (!await browser.permissions.request({ origins: [origin] })) {
+    throw new Error(`Allow ThunderQuail to access ${endpoint.hostname} to connect to this chat provider.`);
+  }
+}
+
 document.querySelector("#test-chat").addEventListener("click", async () => {
   const values = readForm();
   if (!values) {
@@ -85,7 +193,8 @@ document.querySelector("#test-chat").addEventListener("click", async () => {
   fields.disabled = true;
   status.textContent = "Testing the chat model with a sample prompt…";
   try {
-    const { settings } = chatProvider(values);
+    const { settings, endpoint } = chatProvider(values);
+    await requestChatAccess(endpoint);
     const reply = await streamChat(settings, [{ role: "user", content: "Reply with OK." }],
       AbortSignal.timeout(30000), () => {});
     if (!reply.trim()) {
@@ -107,6 +216,15 @@ form.addEventListener("submit", async event => {
   }
   fields.disabled = true;
   status.textContent = "Saving settings…";
+  try {
+    if (settings.base_url) {
+      await requestChatAccess(new URL(settings.base_url));
+    }
+  } catch (error) {
+    status.textContent = error.message;
+    fields.disabled = false;
+    return;
+  }
   try {
     await browser.storage.local.set(settings);
     status.textContent = "Settings saved.";

@@ -73,8 +73,7 @@ def _scan_store(directory, account, name, parents, warnings):
                     warnings.append(f"{name}: skipped linked folder {' / '.join((*parents, entry.stem))}.")
             continue
         if entry.suffix.lower() == ".msf":
-            if not entry.with_suffix("").is_file():
-                warnings.append(f"{name}: {' / '.join((*parents, entry.stem))} has no local MBOX file.")
+            # A summary without an MBOX can belong to an empty folder.
             continue
         if entry.name == "msgFilterRules.dat" or not entry.is_file():
             continue

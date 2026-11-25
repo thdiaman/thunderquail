@@ -8,49 +8,26 @@
 </head>
 <body class="chat overlay-chat">
   <main>
-    <section id="transcript" aria-label="Conversation"></section>
+    <header class="chat-toolbar">
+      <label id="index-toggle" title="Configure the local indexer in Settings.">
+        <input id="search-index" class="visually-hidden" type="checkbox" aria-label="Search indexed mail" checked disabled>
+        <span class="index-dot" aria-hidden="true"></span>
+        <span id="index-label">Search index</span>
+      </label>
+      <span id="model" class="model-chip" hidden></span>
+      <button id="settings" type="button"><span aria-hidden="true">⚙</span> Settings</button>
+    </header>
+    <p id="attachment" class="mail-context" hidden aria-live="polite">
+      <strong><span aria-hidden="true">✉</span> Context Mail:</strong> <span id="context-subject"></span>
+    </p>
+    <section id="transcript" aria-label="Conversation">
+      <p class="chat-empty">Ask me about the selected email or your indexed mail.</p>
+    </section>
     <form id="chat-form">
       <div class="composer-line">
         <label class="visually-hidden" for="prompt">Message</label>
-        <textarea id="prompt" rows="2" placeholder="Ask about your mail…" required></textarea>
-        <button id="send" type="submit" disabled>Send</button>
-        <button id="stop" type="button" hidden>Stop</button>
-      </div>
-      <div class="composer-footer">
-        <details id="chat-options">
-          <summary>Options</summary>
-          <div class="options-panel">
-            <label>
-              <input id="follow-email" type="checkbox" aria-describedby="follow-hint">
-              Follow selected email
-            </label>
-            <small id="follow-hint">Includes the open or selected email when you send.</small>
-            <label>
-              <input id="search-index" type="checkbox" aria-describedby="index-hint" disabled>
-              Search indexed mail
-            </label>
-            <small id="index-hint">Set the local indexer URL and companion token in Settings.</small>
-            <div id="scope-controls" hidden>
-              <label for="search-scope">Search scope</label>
-              <select id="search-scope" aria-describedby="scope-status">
-                <option value="all">All indexed mail</option>
-              </select>
-              <small id="scope-status" role="status"></small>
-              <details id="index-coverage" hidden>
-                <summary>Index coverage</summary>
-                <ul id="coverage-warnings"></ul>
-              </details>
-            </div>
-            <div class="controls options-links">
-              <button id="attach" type="button" disabled>Include once</button>
-              <button id="remove" type="button" hidden>Remove email</button>
-              <button id="settings" type="button">Settings</button>
-              <button id="clear" type="button">New chat</button>
-            </div>
-            <p id="provider"></p>
-          </div>
-        </details>
-        <p id="attachment" aria-live="polite"></p>
+        <textarea id="prompt" rows="1" placeholder="Ask about your mail…" required></textarea>
+        <button id="send" type="submit" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)" disabled>↑</button>
       </div>
       <p id="status" role="status">Loading settings…</p>
     </form>

@@ -62,7 +62,7 @@ this.quailOverlay = class extends ExtensionCommon.ExtensionAPI {
     panel.style.cssText = "position:relative;box-sizing:border-box;background:Canvas;color:CanvasText;border:1px solid GrayText;border-radius:14px;overflow:hidden;box-shadow:0 6px 28px #0005;";
 
     const bar = element("header");
-    bar.style.cssText = "height:40px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:0 12px;background:#155e63;color:white;font:600 14px system-ui;";
+    bar.style.cssText = "position:relative;z-index:1;height:40px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 23px;background:#155e63;color:white;font:600 14px system-ui;";
     const title = element("span");
     title.textContent = "ThunderQuail";
     const controls = element("div");
@@ -82,13 +82,15 @@ this.quailOverlay = class extends ExtensionCommon.ExtensionAPI {
     bar.append(title, controls);
     const resize = element("div");
     resize.title = "Drag to resize";
-    resize.style.cssText = "position:absolute;z-index:2;left:0;top:0;width:12px;height:40px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 25%,#fff8 26%,#fff8 34%,transparent 35%) 3px 4px / 8px 8px no-repeat;";
+    resize.style.cssText = "position:absolute;z-index:2;left:0;top:0;width:22px;height:32px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 20%,#fff9 21%,#fff9 29%,transparent 30%,transparent 43%,#fff9 44%,#fff9 52%,transparent 53%) 5px 6px / 13px 13px no-repeat;";
     panel.append(bar, resize);
     host.append(panel, launcher);
     doc.documentElement.append(host);
 
     let size = savedSize();
     let maximized = false;
+    let frame;
+    let drag;
     const applySize = () => {
       panel.style.width = maximized ? "calc(100vw - 32px)" : `min(${size.width}px, calc(100vw - 32px))`;
       panel.style.height = maximized ? "calc(100vh - 60px)" : `min(${size.height}px, calc(100vh - 80px))`;
@@ -99,46 +101,64 @@ this.quailOverlay = class extends ExtensionCommon.ExtensionAPI {
       resize.hidden = maximized;
     };
     const saveSize = () => Services.prefs.setStringPref(SIZE_PREFERENCE, JSON.stringify(size));
+    const finishDrag = () => {
+      if (!drag) return;
+      const { id, listeners } = drag;
+      drag = undefined;
+      listeners.abort();
+      if (resize.hasPointerCapture(id)) resize.releasePointerCapture(id);
+      if (frame) frame.style.pointerEvents = "";
+      saveSize();
+    };
     maximize.addEventListener("click", () => {
+      finishDrag();
       maximized = !maximized;
       applySize();
     });
     reset.addEventListener("click", () => {
+      finishDrag();
       maximized = false;
       size = { ...DEFAULT_SIZE };
       saveSize();
       applySize();
     });
-    let drag;
-    resize.addEventListener("pointerdown", event => {
-      if (event.button !== 0) return;
-      const { width, height } = panel.getBoundingClientRect();
-      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, width, height };
-      resize.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    });
-    resize.addEventListener("pointermove", event => {
+    const moveDrag = event => {
       if (drag?.id !== event.pointerId) return;
+      if (!(event.buttons & 1)) {
+        finishDrag();
+        return;
+      }
       size = {
         width: Math.round(Math.max(280, Math.min(window.innerWidth - 32, drag.width + drag.x - event.clientX))),
         height: Math.round(Math.max(300, Math.min(window.innerHeight - 80, drag.height + drag.y - event.clientY)))
       };
       applySize();
-    });
-    const finishDrag = () => {
-      if (drag) {
-        drag = undefined;
-        saveSize();
-      }
     };
-    resize.addEventListener("pointerup", finishDrag);
-    resize.addEventListener("pointercancel", finishDrag);
-    resize.addEventListener("lostpointercapture", finishDrag);
+    resize.addEventListener("pointerdown", event => {
+      if (event.button !== 0) return;
+      finishDrag();
+      const { width, height } = panel.getBoundingClientRect();
+      const listeners = new window.AbortController();
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, width, height, listeners };
+      const options = { capture: true, signal: listeners.signal };
+      const end = event => {
+        if (event.pointerId === drag?.id) finishDrag();
+      };
+      window.addEventListener("pointermove", moveDrag, options);
+      window.addEventListener("pointerup", end, options);
+      window.addEventListener("pointercancel", end, options);
+      window.addEventListener("blur", finishDrag, { signal: listeners.signal });
+      resize.addEventListener("lostpointercapture", end, options);
+      // Keep the embedded remote browser from taking mouse input during a resize.
+      if (frame) frame.style.pointerEvents = "none";
+      resize.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
     applySize();
 
-    let frame;
-    const toggle = () => {
-      const opening = panel.hidden;
+    const setVisible = opening => {
+      if (opening === !panel.hidden) return;
+      finishDrag();
       launcher.setAttribute("aria-expanded", String(opening));
       panel.hidden = !opening;
       launcher.style.display = opening ? "none" : "grid";
@@ -160,7 +180,7 @@ this.quailOverlay = class extends ExtensionCommon.ExtensionAPI {
           frame.setAttribute("remote", "true");
           frame.setAttribute("remoteType", extension.remoteType);
         }
-        frame.style.cssText = "display:block;width:100%;height:calc(100% - 40px);border:0;";
+        frame.style.cssText = "position:absolute;display:block;top:40px;left:0;width:100%;height:calc(100% - 40px);border:0;";
         panel.append(frame);
         ExtensionParent.apiManager.emit("extension-browser-inserted", frame);
         const windowId = extension.windowManager.getWrapper(window).id;
@@ -169,6 +189,7 @@ this.quailOverlay = class extends ExtensionCommon.ExtensionAPI {
       }
       minimize.focus();
     };
+    const toggle = () => setVisible(panel.hidden);
     launcher.addEventListener("click", toggle);
     minimize.addEventListener("click", toggle);
     host.addEventListener("keydown", event => {
@@ -176,11 +197,13 @@ this.quailOverlay = class extends ExtensionCommon.ExtensionAPI {
         toggle();
       }
     });
-    this.windows.set(window, { host, toggle });
+    this.windows.set(window, { host, toggle, setVisible, finishDrag });
   }
 
   unmount(window) {
-    this.windows.get(window)?.host.remove();
+    const overlay = this.windows.get(window);
+    overlay?.finishDrag();
+    overlay?.host.remove();
     this.windows.delete(window);
   }
 
@@ -197,9 +220,14 @@ this.quailOverlay = class extends ExtensionCommon.ExtensionAPI {
   getAPI(context) {
     return {
       quailOverlay: {
-        toggle: async windowId => {
+        toggle: async (windowId, visible) => {
           const window = this.extension.windowManager.get(windowId, context).window;
-          this.windows?.get(window)?.toggle();
+          const overlay = this.windows?.get(window);
+          if (typeof visible === "boolean") {
+            overlay?.setVisible(visible);
+          } else {
+            overlay?.toggle();
+          }
         }
       }
     };

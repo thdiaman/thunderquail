@@ -29,6 +29,10 @@
 
         <button id="test-chat" type="button">Test chat connection</button>
 
+        <label for="writing_prompt">Writing system prompt</label>
+        <textarea id="writing_prompt" name="writing_prompt" rows="4" maxlength="4000"></textarea>
+        <small>Additional style instructions for chat and compose. Leave blank to use the default.</small>
+
         <label for="indexer_url">Local indexer URL (optional)</label>
         <input id="indexer_url" name="indexer_url" type="url" placeholder="http://127.0.0.1:5000">
 
@@ -41,7 +45,20 @@
         <small>Increase this if searching a large index needs more time. Chat continues without indexed results after this timeout.</small>
         <small>The companion runs its Hugging Face embedding model locally.</small>
 
+        <label for="indexer_scope">Indexed search scope</label>
+        <select id="indexer_scope" name="indexer_scope">
+          <option value="all">All indexed mail</option>
+        </select>
+
+        <details id="index-coverage">
+          <summary>Index coverage</summary>
+          <p id="coverage-status" role="status"></p>
+          <ul id="coverage-warnings" hidden></ul>
+          <button id="refresh-coverage" type="button">Refresh coverage</button>
+        </details>
+
         <button type="submit">Save settings</button>
+        <button id="clear-chat" type="button">Clear chat history</button>
       </fieldset>
       <p id="status" role="status">Loading settings…</p>
     </form>
