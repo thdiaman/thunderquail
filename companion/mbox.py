@@ -3,14 +3,18 @@ import logging
 import os
 import re
 from email import errors, policy
-from email.parser import BytesParser
+from email.parser import BytesHeaderParser, BytesParser
 from hashlib import sha256
 from html.parser import HTMLParser
 
 
 CHUNK_LENGTH = 1200
 CHUNK_OVERLAP = 150
-_QUOTED_FROM = re.compile(rb"^>+From ")
+_QUOTED_FROM = re.compile(rb"(?m)^>(?=>*From )")
+_HEADER_END = re.compile(rb"(?:^|\n)[ \t\r\v\f]*\n")
+_STORE_HEADERS = re.compile(rb"(?im)^X-Mozilla-(?:Status2?|Keys):[^\n]*\n(?:[ \t][^\n]*\n)*")
+_MESSAGE_PARSER = BytesParser(policy=policy.default)
+_HEADER_PARSER = BytesHeaderParser(policy=policy.default)
 _HTML_BREAKS = {"blockquote", "br", "div", "h1", "h2", "h3", "hr", "li", "p", "pre", "tr"}
 _HTML_IGNORED = {"head", "script", "style", "template"}
 _MAIL_PARSE_ERRORS = (
@@ -59,46 +63,83 @@ class MailboxChanged(ValueError):
     pass
 
 
-def read_records(path, expected, *, start=0, end=None, on_bytes=None, on_position=None):
+def read_raw_records(path, expected, *, start=0, end=None, on_bytes=None, on_position=None):
     end = expected[2] if end is None else end
-    parser = BytesParser(policy=policy.default)
     with path.open("rb") as source:
         if fingerprint(os.fstat(source.fileno())) != expected:
             raise MailboxChanged(f"Mailbox changed before reading: {path}")
         source.seek(start)
-        message = None
-        in_headers = False
+        buffer = bytearray()
         offset = start
+        record_start = start
         while offset < end:
-            line = source.readline(end - offset)
-            if not line:
+            length = min(1024 * 1024, end - offset)
+            block = source.read(length)
+            if len(block) != length:
                 raise MailboxChanged(f"Mailbox changed during indexing: {path}")
-            line_start = offset
-            offset += len(line)
+            search = max(0, len(buffer) - 5)
+            offset += length
             if on_bytes is not None:
-                on_bytes(line)
-            if line.startswith(b"From "):
-                if message is not None:
-                    if on_position is not None:
-                        on_position(line_start)
-                    yield message_start, line_start, _parse_message(parser, message) if message else None
-                message = bytearray()
-                message_start = line_start
-                in_headers = True
-            elif message is not None:
-                if not in_headers and _QUOTED_FROM.match(line):
-                    line = line[1:]
-                message.extend(line)
-                if not line.strip():
-                    in_headers = False
-            elif line.strip():
-                raise ValueError(f"File does not start with an MBOX separator: {path}")
-        if message is not None:
+                on_bytes(block)
+            buffer.extend(block)
+            consumed = 0
+            while (separator := buffer.find(b"\nFrom ", search)) != -1:
+                boundary = separator + 1
+                record = buffer[consumed:boundary]
+                if record.startswith(b"From "):
+                    yield record_start + consumed, record
+                elif record.strip():
+                    raise ValueError(f"File does not start with an MBOX separator: {path}")
+                consumed = boundary
+                search = boundary
+            if consumed:
+                del buffer[:consumed]
+                record_start += consumed
             if on_position is not None:
-                on_position(end)
-            yield message_start, end, _parse_message(parser, message) if message else None
+                on_position(offset)
+        if buffer.startswith(b"From "):
+            yield record_start, buffer
+        elif buffer.strip():
+            raise ValueError(f"File does not start with an MBOX separator: {path}")
+        if on_position is not None:
+            on_position(end)
         if fingerprint(os.fstat(source.fileno())) != expected:
             raise MailboxChanged(f"Mailbox changed during indexing: {path}")
+
+
+def split_record(raw):
+    start = raw.find(b"\n") + 1
+    if not start:
+        return b"", b""
+    separator = _HEADER_END.search(raw, start - 1)
+    end = separator.end() if separator else len(raw)
+    view = memoryview(raw)
+    return bytes(view[start:end]), view[end:]
+
+
+def record_digest(headers, body):
+    # Preserve the header/body boundary even when a stored header is removed.
+    clean = _STORE_HEADERS.sub(b"", headers)
+    digest = sha256(len(clean).to_bytes(8, "big") + clean)
+    digest.update(body)
+    return digest.hexdigest()
+
+
+def parse_record(headers, body):
+    if not headers and not body:
+        return None
+    return _parse_message(_MESSAGE_PARSER, headers + _QUOTED_FROM.sub(b"", body))
+
+
+def record_header(headers):
+    return _parse_message(_HEADER_PARSER, headers)
+
+
+def header_id(message):
+    if message is None:
+        return ""
+    fallback = next((value for name, value in message.raw_items() if name.lower() == "message-id"), "")
+    return _header_text(message, "Message-ID", fallback)
 
 
 def _clean_unicode(text):
@@ -129,7 +170,7 @@ def _body_text(message):
     return _clean_unicode(body).replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
-def _expunged(message):
+def is_expunged(message):
     try:
         return bool(int(str(message.get("X-Mozilla-Status", "0")).strip(), 16) & 0x0008)
     except ValueError:
@@ -154,7 +195,7 @@ def _chunk_text(text):
 
 
 def message_chunks(message):
-    if message is None or _expunged(message):
+    if message is None or is_expunged(message):
         return None, []
     raw_headers = {}
     for name, value in message.raw_items():

@@ -1,5 +1,6 @@
 import json
 import re
+from base64 import b64decode
 from collections import defaultdict
 from dataclasses import dataclass
 from hashlib import sha256
@@ -19,6 +20,7 @@ class Mailbox:
     account_name: str
     folders: tuple[str, ...]
     path: Path
+    account_email: str = ""
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ def _store_path(profile, get):
     return None
 
 
-def _scan_store(directory, account, name, parents, warnings):
+def _scan_store(directory, account, name, parents, warnings, *, email=""):
     try:
         directory = directory.resolve(strict=True)
         entries = sorted(directory.iterdir(), key=lambda path: path.name.casefold())
@@ -68,7 +70,7 @@ def _scan_store(directory, account, name, parents, warnings):
         if entry.is_dir():
             if entry.name.endswith(".sbd") and entry.stem:
                 if entry.resolve().parent == directory:
-                    yield from _scan_store(entry, account, name, (*parents, entry.stem), warnings)
+                    yield from _scan_store(entry, account, name, (*parents, entry.stem), warnings, email=email)
                 else:
                     warnings.append(f"{name}: skipped linked folder {' / '.join((*parents, entry.stem))}.")
             continue
@@ -82,7 +84,7 @@ def _scan_store(directory, account, name, parents, warnings):
             with entry.open("rb") as source:
                 header = source.read(5)
             if header == b"From " or (not header and summary):
-                yield Mailbox(account, name, (*parents, entry.name), entry.resolve())
+                yield Mailbox(account, name, (*parents, entry.name), entry.resolve(), email)
             elif summary:
                 warnings.append(f"{name}: {' / '.join((*parents, entry.name))} is not an MBOX file.")
         except OSError:
@@ -115,8 +117,55 @@ def discover_profile(profile):
             continue
         if get("deferred_to_account"):
             warnings.append(f"{name}: mail delivered to another account is searchable under that account.")
-        mailboxes.extend(_scan_store(directory, account, name, (), warnings))
+        identity = str(prefs.get(f"mail.account.{account}.identities", "")).split(",")[0].strip()
+        email = prefs.get(f"mail.identity.{identity}.useremail", "")
+        mailboxes.extend(_scan_store(directory, account, name, (), warnings, email=email if isinstance(email, str) else ""))
     return mailboxes, warnings
+
+
+def _imap_display_name(name):
+    def decode(match):
+        encoded = match[1].replace(",", "/")
+        if not encoded:
+            return "&"
+        try:
+            return b64decode(encoded + "=" * (-len(encoded) % 4), validate=True).decode("utf-16-be")
+        except ValueError:
+            return match[0]
+
+    return re.sub(r"&([A-Za-z0-9+,]*)-", decode, name)
+
+
+def mailbox_labels(profile, mailboxes):
+    try:
+        cache = json.loads((profile / "folderCache.json").read_text(encoding="utf-8-sig"))
+        entries = cache.items() if isinstance(cache, dict) else ()
+        cache = {Path(key): value for key, value in entries if isinstance(value, dict)}
+    except (OSError, ValueError):
+        cache = {}
+
+    labels = {}
+    for mailbox in mailboxes:
+        path = mailbox.path
+        names = []
+        for fallback in reversed(mailbox.folders):
+            entry = cache.get(path.with_name(path.name + ".msf"), {})
+            name = entry.get("folderName")
+            if not isinstance(name, str) or not name:
+                name = fallback
+                online = entry.get("onlineName")
+                delimiter = entry.get("hierDelim")
+                if isinstance(online, str) and online:
+                    if isinstance(delimiter, int) and 0 < delimiter < 128:
+                        online = online.rsplit(chr(delimiter), 1)[-1]
+                    name = _imap_display_name(online) or fallback
+            names.append("Inbox" if name == "INBOX" else name)
+            path = path.parent.with_suffix("") if path.parent.suffix == ".sbd" else path.parent
+        account = mailbox.account_name
+        if mailbox.account_email and mailbox.account_email.casefold() not in account.casefold():
+            account = f"{account} ({mailbox.account_email})"
+        labels.setdefault(mailbox.path, " / ".join((account, *reversed(names))))
+    return labels
 
 
 def build_scopes(mailboxes):

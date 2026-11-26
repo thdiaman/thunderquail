@@ -10,7 +10,7 @@ from werkzeug.serving import make_server
 
 from .config import DEFAULT_PORT, companion_token, data_directory, default_profile
 from .embeddings import DEFAULT_MODEL, Embedder, EmbeddingError
-from .profile import Mailbox, build_scopes, discover_profile
+from .profile import Mailbox, build_scopes, discover_profile, mailbox_labels
 
 
 EXTENSION_ORIGIN = re.compile(r"moz-extension://[a-zA-Z0-9-]+")
@@ -127,11 +127,13 @@ def main():
 
         directory = data_directory()
         db_dir = (args.db_dir or directory / "index").resolve()
+        labels = {}
         if not args.mbox:
             profile = args.profile.resolve(strict=True) if args.profile else default_profile()
             if db_dir.is_relative_to(profile):
                 raise ValueError("Place --db-dir outside the Thunderbird profile.")
             mailboxes, warnings = discover_profile(profile)
+            labels = mailbox_labels(profile, mailboxes)
         else:
             mailboxes = [Mailbox("", "", (str(path),), path)
                          for path in dict.fromkeys(item.resolve(strict=True) for item in args.mbox)]
@@ -145,7 +147,7 @@ def main():
             print(f"Coverage: {len(warnings):,} stores skipped. See Settings > Indexing > Index coverage.", flush=True)
         print(f"Loading embedding model: {args.embedding_model} (downloads files if needed).", flush=True)
         embedder = Embedder(args.embedding_model, args.embedding_revision)
-        table = build_index(db_dir, paths, embedder, rebuild=args.rebuild,
+        table = build_index(db_dir, paths, embedder, rebuild=args.rebuild, labels=labels,
                             report=lambda line: print(line, flush=True))
         chunks = count_chunks(table)
     except (EmbeddingError, OSError, ValueError, RuntimeError, sqlite3.Error) as error:
