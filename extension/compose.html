@@ -21,6 +21,13 @@
       <textarea id="instruction" rows="3"></textarea>
       <button id="generate-button" type="submit" disabled>Generate preview</button>
     </form>
+    <section id="compose-privacy-review" aria-labelledby="compose-privacy-title" hidden>
+      <h2 id="compose-privacy-title">Review redacted request</h2>
+      <p id="compose-privacy-warning"></p>
+      <pre id="compose-privacy-preview" tabindex="0"></pre>
+      <button id="compose-privacy-cancel" type="button">Cancel</button>
+      <button id="compose-privacy-confirm" type="button">Send redacted text</button>
+    </section>
     <section id="preview-section" hidden>
       <label for="preview">Preview</label>
       <textarea id="preview" rows="6"></textarea>

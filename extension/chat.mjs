@@ -6,6 +6,7 @@ import { buildChatMessage, companionSearchUrl, isCompanionToken,
 import { collectToolDelta, getMailboxContext, isRemovalRequest, mailboxTools,
   planMailboxAction, refreshMailboxContext } from "./mailbox.mjs";
 import { renderMarkdown } from "./markdown.mjs";
+import { excludeEmails, loadExcludedEmails, mailIdentity, redactCredentials } from "./privacy.mjs";
 import { emailWritingPrompt, writingPrompt } from "./writing-prompt.mjs";
 
 const form = document.querySelector("#chat-form");
@@ -153,15 +154,37 @@ function confirm(panel, cancel, apply, reply, signal) {
   });
 }
 
-async function confirmEmailSharing(preview, reply, signal) {
+async function reviewSharing(preview, reply, signal, { sources = [], types = [], prompt = false } = {}) {
   const content = document.querySelector("#sharing-preview");
+  const warning = document.querySelector("#sharing-warning");
+  const exclusions = document.querySelector("#sharing-exclusions");
+  const list = document.querySelector("#sharing-email-list");
+  const skip = document.querySelector("#skip-sharing");
+  const title = document.querySelector("#sharing-title");
+  title.textContent = prompt ? "Send redacted prompt?" : "Share email context?";
+  skip.textContent = prompt ? "Cancel send" : "Skip this time";
   content.textContent = preview;
-  document.querySelector("#sharing-destination").textContent = `Send the excerpts below to ${endpoint.origin}?`;
+  document.querySelector("#sharing-destination").textContent = `Send the text below to ${endpoint.origin}?`;
+  warning.hidden = !types.length;
+  warning.textContent = types.length ? `Possible credentials masked (${types.join(", ")}).` : "";
+  exclusions.hidden = !sources.length;
+  const choices = [...new Map(sources.map(source => [source.identity, source])).values()].map(source => {
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    label.append(checkbox, ` ${source.subject || "(no subject)"}`);
+    list.append(label);
+    return { source, checkbox };
+  });
   try {
-    return await confirm(confirmSharing, document.querySelector("#skip-sharing"),
-      document.querySelector("#allow-sharing"), reply, signal);
+    const approved = await confirm(confirmSharing, skip, document.querySelector("#allow-sharing"), reply, signal);
+    signal.throwIfAborted();
+    const blocked = choices.filter(({ checkbox }) => checkbox.checked).map(({ source }) => source);
+    if (blocked.length) await excludeEmails(blocked);
+    return approved;
   } finally {
     content.textContent = "";
+    list.replaceChildren();
   }
 }
 
@@ -231,6 +254,11 @@ async function openReplyDraft(message, body, reply, signal) {
 async function proposeMailboxAction(question, reply, signal) {
   const junkOnly = isRemovalRequest(question);
   const context = await getMailboxContext((await activeMailTab())?.id ?? null);
+  const excluded = await loadExcludedEmails();
+  context.data.selected = context.data.selected.filter((_, index) => {
+    const identity = mailIdentity(context.selected[index].headerMessageId);
+    return identity && !excluded.has(identity);
+  });
   signal.throwIfAborted();
   const calls = [];
   const answer = await streamChat(settings, [
@@ -382,6 +410,8 @@ async function runQuestion(question, turn) {
   retryButton?.remove();
   retryButton = undefined;
   if (!turn) {
+    const redacted = redactCredentials(question, [settings.api_key, settings.indexer_token]);
+    question = redacted.text;
     const user = showTurn("You", question, true);
     const note = document.createElement("small");
     user.after(note);
@@ -390,7 +420,8 @@ async function runQuestion(question, turn) {
     result.className = "reply-result";
     result.setAttribute("role", "status");
     reply.after(result);
-    turn = { question, note, reply, result, selectedMessage: followedEmail, includeSelected: includeEmail.checked };
+    turn = { question, note, reply, result, selectedMessage: followedEmail, includeSelected: includeEmail.checked,
+      promptTypes: redacted.types };
     prompt.value = "";
     resizePrompt();
     prompt.focus();
@@ -404,6 +435,13 @@ async function runQuestion(question, turn) {
   status.textContent = "Connecting…";
   try {
     request.signal.throwIfAborted();
+    if (turn.promptTypes.length) {
+      status.textContent = "";
+      if (!await reviewSharing(question, reply, request.signal, { types: turn.promptTypes, prompt: true })) {
+        showReplyResult(turn, "Send canceled.", true);
+        return;
+      }
+    }
 
     let attachedEmail;
     if (includeEmail.checked && turn.includeSelected && turn.selectedMessage) {
@@ -413,17 +451,27 @@ async function runQuestion(question, turn) {
         refreshFollowedEmail();
         throw new Error("The selected email changed. Send a new message with the email you want to include.");
       }
-      status.textContent = "Reading selected email…";
-      try {
-        attachedEmail = await readSelectedBody(selected, request.signal);
-      } catch {
-        request.signal.throwIfAborted();
-      }
-      if (attachedEmail) {
-        status.textContent = "";
-        if (!await confirmEmailSharing(attachedEmail.text, reply, request.signal)) attachedEmail = undefined;
+      const identity = mailIdentity(selected.headerMessageId);
+      if (!identity || (await loadExcludedEmails()).has(identity)) {
+        note.textContent = identity ? "Selected email is excluded from sharing." : "Selected email has no stable message ID.";
       } else {
-        note.textContent = "Selected email text was unavailable.";
+        status.textContent = "Reading selected email…";
+        try {
+          attachedEmail = await readSelectedBody(selected, request.signal);
+        } catch {
+          request.signal.throwIfAborted();
+        }
+        if (attachedEmail) {
+          const secrets = [settings.api_key, settings.indexer_token];
+          const redacted = redactCredentials(attachedEmail.text, secrets);
+          const subject = redactCredentials(attachedEmail.subject, secrets).text;
+          status.textContent = "";
+          const approved = await reviewSharing(redacted.text, reply, request.signal,
+            { sources: [{ identity, subject }], types: redacted.types });
+          attachedEmail = approved && !(await loadExcludedEmails()).has(identity) ? { subject, text: redacted.text } : undefined;
+        } else {
+          note.textContent = "Selected email text was unavailable.";
+        }
       }
       request.signal.throwIfAborted();
     }
@@ -496,13 +544,27 @@ ${writingPrompt(settings)}` },
       let searchResult = { status: retrieved ? "no_results" : "unavailable" };
       if (retrieved?.length) {
         status.textContent = "";
-        const preview = retrieved.map(({ reference, subject, from, date, text }) =>
-          `[${reference}]\nSubject: ${subject}\nFrom: ${from}\nDate: ${date}\n\n${text}`).join("\n\n");
-        if (await confirmEmailSharing(preview, reply, request.signal)) {
-          matches = retrieved;
-          searchResult = { indexed_mail: matches };
-        } else {
-          searchResult = { status: "sharing_declined" };
+        const excluded = await loadExcludedEmails();
+        const types = new Set();
+        const redact = text => {
+          const result = redactCredentials(text, [settings.api_key, settings.indexer_token]);
+          result.types.forEach(type => types.add(type));
+          return result.text;
+        };
+        const shareable = retrieved.filter(row => row.identity && !excluded.has(row.identity)).map(row => ({
+          ...row, subject: redact(row.subject), from: redact(row.from), date: redact(row.date), text: redact(row.text)
+        }));
+        if (shareable.length) {
+          const preview = shareable.map(({ reference, subject, from, date, text }) =>
+            `[${reference}]\nSubject: ${subject}\nFrom: ${from}\nDate: ${date}\n\n${text}`).join("\n\n");
+          const approved = await reviewSharing(preview, reply, request.signal, { sources: shareable, types: [...types] });
+          if (approved) {
+            const latest = await loadExcludedEmails();
+            matches = shareable.filter(row => !latest.has(row.identity)).map(({ identity, ...row }) => row);
+            searchResult = matches.length ? { indexed_mail: matches } : { status: "sharing_declined" };
+          } else {
+            searchResult = { status: "sharing_declined" };
+          }
         }
       }
       request.signal.throwIfAborted();

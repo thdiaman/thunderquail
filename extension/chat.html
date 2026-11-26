@@ -36,7 +36,13 @@
   <section id="confirm-sharing" aria-labelledby="sharing-title" hidden>
     <h2 id="sharing-title">Share email context?</h2>
     <p id="sharing-destination"></p>
+    <p id="sharing-warning" role="status" hidden></p>
     <pre id="sharing-preview" tabindex="0"></pre>
+    <fieldset id="sharing-exclusions" hidden>
+      <legend>Never share these emails</legend>
+      <p>Checked emails are excluded when you continue, including when you skip sharing.</p>
+      <div id="sharing-email-list"></div>
+    </fieldset>
     <div class="controls">
       <button id="skip-sharing" type="button">Continue without email</button>
       <button id="allow-sharing" type="button">Share and continue</button>

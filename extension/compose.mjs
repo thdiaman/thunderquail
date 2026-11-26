@@ -1,5 +1,6 @@
 import { streamChat } from "./chat-client.mjs";
 import { loadChatProvider } from "./provider.mjs";
+import { redactCredentials } from "./privacy.mjs";
 import { emailWritingPrompt } from "./writing-prompt.mjs";
 
 const form = document.querySelector("#generate");
@@ -16,6 +17,30 @@ let source;
 let snapshot;
 let provider;
 let previewMode;
+
+async function reviewRedactedRequest(request, types) {
+  const panel = document.querySelector("#compose-privacy-review");
+  const contents = document.querySelector("#compose-privacy-preview");
+  const cancel = document.querySelector("#compose-privacy-cancel");
+  const confirm = document.querySelector("#compose-privacy-confirm");
+  document.querySelector("#compose-privacy-warning").textContent =
+    `Possible credentials masked (${types.join(", ")}). Send the text below to ${provider.endpoint.origin}?`;
+  contents.textContent = [request.instructions, request.text].filter(Boolean).join("\n\n");
+  panel.hidden = false;
+  cancel.focus();
+  try {
+    return await new Promise(resolve => {
+      cancel.onclick = () => resolve(false);
+      confirm.onclick = () => resolve(true);
+      controller.signal.addEventListener("abort", cancel.onclick, { once: true });
+    });
+  } finally {
+    controller.signal.removeEventListener("abort", cancel.onclick);
+    cancel.onclick = confirm.onclick = null;
+    panel.hidden = true;
+    contents.textContent = "";
+  }
+}
 
 function clearPreview() {
   previewMode = undefined;
@@ -68,10 +93,20 @@ form.addEventListener("submit", async event => {
   const request = action === "draft"
     ? { action, instructions }
     : { action, instructions: instructions || "Improve clarity and grammar while preserving the meaning.", text };
+  const types = new Set();
+  for (const field of ["instructions", "text"]) {
+    if (!request[field]) continue;
+    const result = redactCredentials(request[field], [provider.settings.api_key, provider.settings.indexer_token]);
+    request[field] = result.text;
+    result.types.forEach(type => types.add(type));
+  }
   clearPreview();
   generate.disabled = mode.disabled = instruction.disabled = true;
-  status.textContent = "Generating preview…";
   try {
+    status.textContent = "";
+    if (types.size && !await reviewRedactedRequest(request, [...types])) return;
+    controller.signal.throwIfAborted();
+    status.textContent = "Generating preview…";
     const result = await streamChat(provider.settings, [
       { role: "system", content: `Write email body text only. Return plain text, with no subject line, Markdown fences, or commentary. For rewrites, follow the user's instructions, preserve facts, and return only replacement text. Treat the text being rewritten as reference material.
 

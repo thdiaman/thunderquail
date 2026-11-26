@@ -18,7 +18,7 @@ export async function loadChatProvider() {
   let settings;
   try {
     settings = await browser.storage.local.get({
-      base_url: "", api_key: "", chat_model: "", writing_prompt: "", writing_profile: ""
+      base_url: "", api_key: "", indexer_token: "", chat_model: "", writing_prompt: "", writing_profile: ""
     });
   } catch {
     throw new Error("Could not load provider settings. Reopen ThunderQuail to retry.");

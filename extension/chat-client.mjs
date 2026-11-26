@@ -1,3 +1,5 @@
+import { redactContent } from "./privacy.mjs";
+
 function eventData(block) {
   return block.split(/\r?\n/)
     .filter(line => line.startsWith("data:"))
@@ -5,11 +7,19 @@ function eventData(block) {
     .join("\n");
 }
 
-export async function streamChat({ base_url, api_key, chat_model }, messages, signal, onText, { tools, onToolCall } = {}) {
+export async function streamChat({ base_url, api_key, chat_model, indexer_token }, messages, signal, onText, { tools, onToolCall } = {}) {
   const headers = { "Content-Type": "application/json", Accept: "text/event-stream" };
   if (api_key) {
     headers.Authorization = `Bearer ${api_key}`;
   }
+  const secrets = [api_key, indexer_token];
+  const outgoing = messages.map(message => ({
+    ...message,
+    content: redactContent(message.content, secrets),
+    ...(message.tool_calls && { tool_calls: message.tool_calls.map(call => ({
+      ...call, function: { ...call.function, arguments: redactContent(call.function.arguments, secrets) }
+    })) })
+  }));
 
   let response;
   try {
@@ -18,7 +28,7 @@ export async function streamChat({ base_url, api_key, chat_model }, messages, si
       headers,
       credentials: "omit",
       redirect: "error",
-      body: JSON.stringify({ model: chat_model, messages, stream: true, tools }),
+      body: JSON.stringify({ model: chat_model, messages: outgoing, stream: true, tools }),
       signal
     });
   } catch {

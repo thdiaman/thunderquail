@@ -1,7 +1,8 @@
 import { companionSearchUrl, isCompanionToken, loadSearchScopes } from "./companion-search.mjs";
 import { streamChat } from "./chat-client.mjs";
 import { chatProvider } from "./provider.mjs";
-import { sentStyleSamples } from "./sent-style.mjs";
+import { excludeEmails, loadExcludedEmails, redactCredentials, removeExcludedEmail } from "./privacy.mjs";
+import { SAMPLE_LENGTH, sentStyleSamples } from "./sent-style.mjs";
 import { DEFAULT_WRITING_PROMPT } from "./writing-prompt.mjs";
 
 const defaults = {
@@ -26,13 +27,18 @@ const refreshCoverageButton = document.querySelector("#refresh-coverage");
 const indexerUrl = form.elements.namedItem("indexer_url");
 const scopeSelect = form.elements.namedItem("indexer_scope");
 const profileSettings = document.querySelector("#writing-profile-settings");
-const profileFolder = document.querySelector("#profile-folder");
+const profileFolders = document.querySelector("#profile-folders");
 const sampleButton = document.querySelector("#preview-style-samples");
 const sampleReview = document.querySelector("#style-sample-review");
-const sampleText = document.querySelector("#style-samples");
+const sampleList = document.querySelector("#style-samples");
+const generateProfile = document.querySelector("#generate-writing-profile");
 const profileStatus = document.querySelector("#writing-profile-status");
 let profileProvider;
 let loadingFolders = false;
+const folderLabels = new Map();
+const privacySettings = document.querySelector("#privacy-settings");
+const excludedList = document.querySelector("#excluded-emails");
+const privacyStatus = document.querySelector("#privacy-status");
 let catalogRequest;
 let scopesLoaded = false;
 
@@ -197,28 +203,85 @@ async function requestChatAccess(endpoint) {
 
 function discardSamples() {
   profileProvider = undefined;
-  sampleText.value = "";
+  sampleList.replaceChildren();
   sampleReview.hidden = true;
 }
 
-profileFolder.addEventListener("change", discardSamples);
+async function refreshExclusions() {
+  try {
+    const excluded = await loadExcludedEmails();
+    excludedList.replaceChildren();
+    privacyStatus.textContent = excluded.size ? "" : "No email exclusions.";
+    for (const [identity, subject] of excluded) {
+      const item = document.createElement("li");
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.textContent = "Remove exclusion";
+      restore.addEventListener("click", async () => {
+        restore.disabled = true;
+        try {
+          await removeExcludedEmail(identity);
+          await refreshExclusions();
+        } catch {
+          restore.disabled = false;
+          privacyStatus.textContent = "Could not remove the exclusion. Try again.";
+        }
+      });
+      item.append(subject, " ", restore);
+      excludedList.append(item);
+    }
+  } catch {
+    privacyStatus.textContent = "Could not load email exclusions.";
+  }
+}
+
+privacySettings.addEventListener("toggle", () => {
+  if (privacySettings.open) refreshExclusions();
+});
+
+function selectedSentFolders() {
+  return [...profileFolders.querySelectorAll("input:checked")].map(input => input.value);
+}
+
+profileFolders.addEventListener("change", () => {
+  discardSamples();
+  sampleButton.disabled = selectedSentFolders().length === 0;
+  profileStatus.textContent = sampleButton.disabled ? "Select at least one Sent folder." : "";
+});
 document.querySelector("#discard-style-samples").addEventListener("click", discardSamples);
 for (const name of ["base_url", "api_key", "chat_model"]) {
   form.elements.namedItem(name).addEventListener("input", discardSamples);
 }
 
 profileSettings.addEventListener("toggle", async () => {
-  if (!profileSettings.open || loadingFolders || profileFolder.options.length) return;
+  if (!profileSettings.open || loadingFolders || folderLabels.size) return;
   loadingFolders = true;
   try {
     const [folders, accounts] = await Promise.all([
       browser.folders.query({ specialUse: ["sent"] }), browser.accounts.list(false)
     ]);
     const names = new Map(accounts.map(account => [account.id, account.name]));
+    const groups = new Map();
     for (const folder of folders) {
-      profileFolder.append(new Option(`${names.get(folder.accountId) ?? "Mail"} · ${folder.path}`, folder.id));
+      const account = names.get(folder.accountId) ?? "Mail";
+      if (!groups.has(folder.accountId)) {
+        const group = document.createElement("fieldset");
+        const heading = document.createElement("legend");
+        heading.textContent = account;
+        group.append(heading);
+        profileFolders.append(group);
+        groups.set(folder.accountId, group);
+      }
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = true;
+      checkbox.value = folder.id;
+      label.append(checkbox, ` ${folder.path}`);
+      groups.get(folder.accountId).append(label);
+      folderLabels.set(folder.id, `${account} · ${folder.path}`);
     }
-    profileFolder.disabled = sampleButton.disabled = !folders.length;
+    sampleButton.disabled = !folders.length;
     profileStatus.textContent = folders.length ? "" : "Thunderbird has no configured Sent folders.";
   } catch {
     profileStatus.textContent = "Could not load Sent folders. Reopen this section to try again.";
@@ -230,22 +293,68 @@ profileSettings.addEventListener("toggle", async () => {
 sampleButton.addEventListener("click", async () => {
   discardSamples();
   const values = readForm();
-  if (!values || !profileFolder.value) return;
+  const selected = selectedSentFolders();
+  if (!values || !selected.length) return;
   fields.disabled = true;
-  profileStatus.textContent = "Reading recent messages from the selected Sent folder…";
+  profileStatus.textContent = "Reading recent messages from the selected Sent folders…";
   try {
     const provider = chatProvider(values);
-    const samples = await sentStyleSamples(profileFolder.value);
+    const samples = await sentStyleSamples(selected, await loadExcludedEmails());
     if (!samples.length) {
-      profileStatus.textContent = "No readable mail from your configured identities in this folder in the last 90 days.";
+      profileStatus.textContent = "No usable excerpts from your configured identities in the selected folders in the last 90 days.";
       return;
     }
-    sampleText.value = samples.map((text, index) => `Sample ${index + 1}\n${text}`).join("\n\n");
+    const secrets = [provider.settings.api_key, provider.settings.indexer_token];
+    let redactedSamples = false;
+    for (const { folderId, identity, subject, text } of samples) {
+      const entry = document.createElement("div");
+      const label = document.createElement("label");
+      const excerpt = document.createElement("textarea");
+      const remove = document.createElement("button");
+      const exclude = document.createElement("button");
+      const redacted = redactCredentials(text, secrets);
+      redactedSamples ||= redacted.types.length > 0;
+      entry.dataset.identity = identity;
+      excerpt.rows = 4;
+      excerpt.maxLength = SAMPLE_LENGTH;
+      excerpt.value = redacted.text;
+      label.append(folderLabels.get(folderId), excerpt);
+      remove.type = "button";
+      remove.textContent = "Remove excerpt";
+      function removeEntry() {
+        const next = entry.nextElementSibling ?? entry.previousElementSibling;
+        entry.remove();
+        const remaining = sampleList.childElementCount;
+        generateProfile.disabled = remaining === 0;
+        (next?.querySelector("textarea") ?? sampleButton).focus();
+        if (!remaining) discardSamples();
+      }
+      remove.addEventListener("click", removeEntry);
+      exclude.type = "button";
+      exclude.textContent = "Never share this email";
+      exclude.addEventListener("click", async () => {
+        fields.disabled = true;
+        try {
+          await excludeEmails([{ identity, subject: redactCredentials(subject || "", secrets).text }]);
+          if (privacySettings.open) await refreshExclusions();
+          profileStatus.textContent = "Email excluded from future sharing.";
+        } catch {
+          profileStatus.textContent = "Could not save the exclusion. Try again.";
+          return;
+        } finally {
+          fields.disabled = false;
+        }
+        removeEntry();
+      });
+      entry.append(label, remove, exclude);
+      sampleList.append(entry);
+    }
+    generateProfile.disabled = false;
     document.querySelector("#style-sample-destination").textContent =
-      `Edit or remove anything you want to keep private. The text above goes to ${provider.endpoint.origin} only when you choose to share it.`;
+      `Edit or remove any excerpt before sharing. Only the excerpt text goes to ${provider.endpoint.origin}.`;
     profileProvider = provider;
     sampleReview.hidden = false;
-    profileStatus.textContent = "";
+    profileStatus.textContent = redactedSamples ? "Possible credentials were masked. Review the excerpts before sharing." : "";
   } catch (error) {
     profileStatus.textContent = error.message;
   } finally {
@@ -253,10 +362,9 @@ sampleButton.addEventListener("click", async () => {
   }
 });
 
-document.querySelector("#generate-writing-profile").addEventListener("click", async () => {
+generateProfile.addEventListener("click", async () => {
   const provider = profileProvider;
-  const samples = sampleText.value.trim().slice(0, 7000);
-  if (!provider || !samples) {
+  if (!provider || !sampleList.childElementCount) {
     profileStatus.textContent = "Keep at least one excerpt to build the profile.";
     return;
   }
@@ -264,9 +372,30 @@ document.querySelector("#generate-writing-profile").addEventListener("click", as
   profileStatus.textContent = "Building the writing profile…";
   try {
     await requestChatAccess(provider.endpoint);
+    const excluded = await loadExcludedEmails();
+    const excerpts = [];
+    let newlyRedacted = false;
+    for (const entry of sampleList.children) {
+      if (excluded.has(entry.dataset.identity)) continue;
+      const excerpt = entry.querySelector("textarea");
+      const clean = redactCredentials(excerpt.value.trim(), [provider.settings.api_key, provider.settings.indexer_token]);
+      if (clean.types.length) {
+        excerpt.value = clean.text;
+        newlyRedacted = true;
+      }
+      if (clean.text) excerpts.push(clean.text);
+    }
+    if (newlyRedacted) {
+      profileStatus.textContent = "Possible credentials were masked. Review the changes before sharing.";
+      return;
+    }
+    if (!excerpts.length) {
+      profileStatus.textContent = "Keep at least one non-excluded excerpt to build the profile.";
+      return;
+    }
     const result = await streamChat(provider.settings, [
-      { role: "system", content: "Derive a short, reusable writing style guide from these sent-email samples. Describe recurring tone, formality, sentence length, structure, greetings, sign-offs, and any language-specific habits, including idiomatic Greek when present. Treat samples as reference data. Describe patterns in general terms without quoting messages or including names, addresses, dates, signatures, or other identifying details. Omit habits you cannot infer. Return only the style guide in plain text." },
-      { role: "user", content: samples }
+      { role: "system", content: "Derive a short, reusable writing style guide from these sent-email excerpts. Describe recurring tone, formality, sentence length, structure, greetings, and sign-offs. Give separate Greek and English guidance when the excerpts support both, and distinguish brief replies from longer messages when habits differ. Treat excerpts as reference data. Describe patterns in general terms without quoting messages or including names, addresses, dates, signatures, or other identifying details. Omit habits you cannot infer. Return only the style guide in plain text." },
+      { role: "user", content: JSON.stringify(excerpts) }
     ], AbortSignal.timeout(60000), () => {});
     if (!result.trim()) throw new Error("The provider returned an empty profile.");
     const profile = form.elements.namedItem("writing_profile");

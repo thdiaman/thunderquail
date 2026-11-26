@@ -25,6 +25,20 @@ body {
   font: inherit;
 }
 
+#profile-folders label,
+#style-samples textarea {
+  display: block;
+}
+
+#style-samples textarea {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+#style-samples > div {
+  margin-block: 0.75rem;
+}
+
 .chat main {
   max-width: 48rem;
 }
@@ -333,12 +347,17 @@ body {
 }
 
 #sharing-preview,
-#reply-preview {
+#reply-preview,
+#compose-privacy-preview {
   max-height: min(30vh, 14rem);
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: inherit;
+}
+
+#sharing-email-list label {
+  display: block;
 }
 
 .visually-hidden {

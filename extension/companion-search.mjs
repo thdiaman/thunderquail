@@ -1,3 +1,5 @@
+import { mailIdentity } from "./privacy.mjs";
+
 const SEARCH_TIMEOUT_MS = 2000;
 const TOP_K = 4;
 
@@ -59,6 +61,7 @@ export async function searchIndexedMail(configuration, query, signal, scope = "a
     }
     return results.slice(0, TOP_K).filter(row => typeof row?.text === "string" && row.text.trim())
       .map((row, index) => ({
+        identity: mailIdentity(row.message_id),
         reference: `Mail ${index + 1}`,
         subject: typeof row.subject === "string" ? row.subject.slice(0, 300) : "",
         from: typeof row.from === "string" ? row.from.slice(0, 300) : "",
