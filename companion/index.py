@@ -8,7 +8,8 @@ from filelock import FileLock, Timeout
 
 from .embedding_cache import EmbeddingCache
 from .embeddings import EmbeddingError
-from .mbox import fingerprint, mailbox_chunks
+from .mbox import MailboxChanged, fingerprint
+from .mbox_update import plan_mailbox_update, saved_fingerprint
 from .progress import IndexProgress
 
 
@@ -30,23 +31,19 @@ def _key_filter(column, hashes):
     return f"{column} IN (" + ", ".join(f"'{key}'" for key in hashes) + ")"
 
 
-def _mailbox_rows(mailboxes, progress):
-    for path, expected in mailboxes.items():
-        mailbox_key = _hash(str(path))
-        for row in mailbox_chunks(path, expected, on_position=progress.position if progress else None):
-            message_key = row.pop("message_key")
-            yield {
-                **row,
-                "mailbox": str(path),
-                "mailbox_key": mailbox_key,
-                "row_key": f"{mailbox_key}:{message_key}:{row['chunk_index']}",
-            }
-        if progress:
-            progress.finish_mailbox(expected[2])
+def _mailbox_rows(path, update):
+    mailbox_key = _hash(str(path))
+    for row in update.rows:
+        message_key = row.pop("message_key")
+        yield {
+            **row,
+            "mailbox": str(path),
+            "mailbox_key": mailbox_key,
+            "row_key": f"{mailbox_key}:{message_key}:{row['chunk_index']}",
+        }
 
 
-def _embedded_batches(mailboxes, embedder, cache, durable, progress):
-    rows = _mailbox_rows(mailboxes, progress)
+def _embedded_batches(rows, embedder, cache, durable, progress):
     while batch := list(itertools.islice(rows, BATCH_SIZE)):
         inputs = {}
         for row in batch:
@@ -96,17 +93,19 @@ def count_chunks(table):
     return table.count_rows(CHUNKS_ONLY)
 
 
-def _record_batches(batches, schema, checkpoint, mailboxes, progress):
+def _record_batches(batches, schema, checkpoint, mailboxes):
     dimension = schema.field("vector").type.list_size
     for batch in batches:
         if any(len(row["vector"]) != dimension for row in batch):
             raise EmbeddingError("Embedding vector dimensions changed. Restart with --rebuild.")
         yield pa.RecordBatch.from_pylist(batch, schema=schema)
     for path, expected in mailboxes.items():
-        if fingerprint(path.stat()) != expected:
-            raise ValueError(f"Mailbox changed during indexing: {path}")
-    if progress:
-        progress.finalizing()
+        try:
+            observed = fingerprint(path.stat())
+        except FileNotFoundError as error:
+            raise MailboxChanged(f"Mailbox disappeared during indexing: {path}") from error
+        if observed != expected:
+            raise MailboxChanged(f"Mailbox changed during indexing: {path}")
     # Commit the files' fingerprints together with their searchable rows.
     yield pa.RecordBatch.from_pylist([{
         "row_key": CHECKPOINT_KEY, "mailbox_key": "", "text": json.dumps(checkpoint),
@@ -114,13 +113,45 @@ def _record_batches(batches, schema, checkpoint, mailboxes, progress):
     }], schema=schema)
 
 
+def _commit(db, table, rows, checkpoint, mailboxes, embedder, durable, progress, delete=None):
+    batches = _embedded_batches(rows, embedder, table, durable, progress)
+    first = next(batches, [])
+    batches = itertools.chain([first], batches) if first else ()
+    dimension = len(first[0]["vector"]) if first else 1
+    create = table is None or (first and count_chunks(table) == 0 and
+                               dimension != table.schema.field("vector").type.list_size)
+    schema = _schema(dimension) if create else table.schema
+    changed_during_write = None
+
+    def guarded_batches():
+        nonlocal changed_during_write
+        try:
+            yield from _record_batches(batches, schema, checkpoint, mailboxes)
+        except MailboxChanged as error:
+            # Arrow can wrap an exception raised by the Python batch iterator.
+            changed_during_write = error
+            raise
+
+    try:
+        if create:
+            table = db.create_table(TABLE_NAME, schema=schema, mode="overwrite", data=guarded_batches())
+            table.create_scalar_index("embedding_key")
+            return table
+        records = pa.RecordBatchReader.from_batches(schema, guarded_batches())
+        merge = (table.merge_insert("row_key")
+                 .when_matched_update_all(where=f"target.row_key = '{CHECKPOINT_KEY}'")
+                 .when_not_matched_insert_all())
+        if delete is not None:
+            merge.when_not_matched_by_source_delete(delete)
+        merge.execute(records)
+        return table
+    except Exception as error:
+        if changed_during_write is not None and error is not changed_during_write:
+            raise changed_during_write from error
+        raise
+
+
 def _update_index(db, paths, embedder, rebuild, report, durable):
-    mailboxes = {path: fingerprint(path.stat()) for path in paths}
-    checkpoint = {
-        "version": INDEX_VERSION,
-        "provider": embedder.identity,
-        "mailboxes": {str(path): list(expected) for path, expected in mailboxes.items()},
-    }
     try:
         table = db.open_table(TABLE_NAME)
     except ValueError as error:
@@ -130,42 +161,70 @@ def _update_index(db, paths, embedder, rebuild, report, durable):
         table = None
     previous = _read_checkpoint(table)
     compatible = (not rebuild and previous.get("version") == INDEX_VERSION
-                  and previous.get("provider") == checkpoint["provider"])
-    if compatible and previous == checkpoint:
+                  and previous.get("provider") == embedder.identity)
+    old_mailboxes = previous.get("mailboxes", {}) if compatible else {}
+    mailboxes = {path: fingerprint(path.stat()) for path in paths}
+    changed = {path: stamp for path, stamp in mailboxes.items()
+               if not isinstance(old_mailboxes.get(str(path)), dict)
+               or list(stamp) != saved_fingerprint(old_mailboxes[str(path)])}
+    removed = old_mailboxes.keys() - {str(path) for path in mailboxes}
+    if compatible and not changed and not removed:
         if report is not None:
             report(f"All {len(mailboxes):,} mailboxes unchanged. Reusing the existing index.")
         return table
 
-    old_mailboxes = previous.get("mailboxes", {}) if compatible else {}
-    changed = {path: expected for path, expected in mailboxes.items()
-               if list(expected) != old_mailboxes.get(str(path))}
-    removed = old_mailboxes.keys() - checkpoint["mailboxes"].keys()
     progress = None
     if report is not None:
         progress = IndexProgress(report, mailboxes=len(changed), unchanged=len(mailboxes) - len(changed),
                                  removed=len(removed), total_bytes=sum(stamp[2] for stamp in changed.values()))
-    batches = _embedded_batches(changed, embedder, table if compatible else None, durable, progress)
-    first = next(batches, [])
-    batches = itertools.chain([first], batches) if first else ()
-    dimension = len(first[0]["vector"]) if first else 1
-
-    if not compatible or (first and count_chunks(table) == 0 and
-                          dimension != table.schema.field("vector").type.list_size):
-        schema = _schema(dimension)
-        table = db.create_table(TABLE_NAME, schema=schema, mode="overwrite",
-                                data=_record_batches(batches, schema, checkpoint, mailboxes, progress))
-        table.create_scalar_index("embedding_key")
-        return table
-
-    replaced_keys = [_hash(str(path)) for path in changed] + [_hash(path) for path in sorted(removed)]
-    records = pa.RecordBatchReader.from_batches(
-        table.schema, _record_batches(batches, table.schema, checkpoint, mailboxes, progress)
-    )
-    (table.merge_insert("row_key")
-     .when_matched_update_all(where=f"target.row_key = '{CHECKPOINT_KEY}'")
-     .when_not_matched_insert_all()
-     .when_not_matched_by_source_delete(_key_filter("mailbox_key", replaced_keys))
-     .execute(records))
+    checkpoint = {"version": INDEX_VERSION, "provider": embedder.identity, "mailboxes": dict(old_mailboxes)}
+    on_position = progress.position if progress else None
+    if table is not None and not compatible:
+        def initial_rows():
+            for path, stamp in mailboxes.items():
+                update = plan_mailbox_update(path, stamp, None, on_position=on_position)
+                checkpoint["mailboxes"][str(path)] = update.checkpoint
+                yield from _mailbox_rows(path, update)
+                if progress:
+                    progress.finish_mailbox(stamp[2])
+        table = _commit(db, None, initial_rows(), checkpoint, mailboxes, embedder, durable, progress)
+    else:
+        for path, stamp in changed.items():
+            for attempt in range(2):
+                try:
+                    update = plan_mailbox_update(path, stamp, old_mailboxes.get(str(path)), on_position=on_position)
+                    checkpoint["mailboxes"][str(path)] = update.checkpoint
+                    mailbox_key = _hash(str(path))
+                    delete = None
+                    if update.replace:
+                        delete = _key_filter("mailbox_key", [mailbox_key])
+                    elif update.deleted:
+                        delete = _key_filter("row_key", (
+                            f"{mailbox_key}:{key}:{index}"
+                            for key, count in update.deleted.items() for index in range(count)
+                        ))
+                    table = _commit(db, table, _mailbox_rows(path, update), checkpoint, {path: stamp},
+                                    embedder, durable, progress, delete)
+                    break
+                except MailboxChanged:
+                    if attempt:
+                        raise
+                    if report:
+                        report(f"Mailbox changed during indexing; retrying: {path.name}")
+                    if on_position:
+                        on_position(0)
+                    stamp = fingerprint(path.stat())
+            if progress:
+                progress.finish_mailbox(stamp[2])
+        if removed:
+            for path in removed:
+                del checkpoint["mailboxes"][path]
+            table = _commit(db, table, iter(()), checkpoint, {}, embedder, durable, progress,
+                            _key_filter("mailbox_key", map(_hash, sorted(removed))))
+        if table is None:
+            table = _commit(db, None, iter(()), checkpoint, {}, embedder, durable, progress)
+    if progress:
+        progress.completed()
     return table
 
 

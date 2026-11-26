@@ -55,26 +55,35 @@ def _parse_message(parser, message):
         return None
 
 
-def read_messages(path, expected, *, on_position=None):
+class MailboxChanged(ValueError):
+    pass
+
+
+def read_records(path, expected, *, start=0, end=None, on_bytes=None, on_position=None):
+    end = expected[2] if end is None else end
     parser = BytesParser(policy=policy.default)
     with path.open("rb") as source:
         if fingerprint(os.fstat(source.fileno())) != expected:
-            raise ValueError(f"Mailbox changed before reading: {path}")
+            raise MailboxChanged(f"Mailbox changed before reading: {path}")
+        source.seek(start)
         message = None
         in_headers = False
-        offset = 0
-        for line in source:
-            if on_position is not None:
-                line_start = offset
-                offset += len(line)
+        offset = start
+        while offset < end:
+            line = source.readline(end - offset)
+            if not line:
+                raise MailboxChanged(f"Mailbox changed during indexing: {path}")
+            line_start = offset
+            offset += len(line)
+            if on_bytes is not None:
+                on_bytes(line)
             if line.startswith(b"From "):
-                if message:
+                if message is not None:
                     if on_position is not None:
                         on_position(line_start)
-                    parsed = _parse_message(parser, message)
-                    if parsed is not None:
-                        yield parsed
+                    yield message_start, line_start, _parse_message(parser, message) if message else None
                 message = bytearray()
+                message_start = line_start
                 in_headers = True
             elif message is not None:
                 if not in_headers and _QUOTED_FROM.match(line):
@@ -84,14 +93,12 @@ def read_messages(path, expected, *, on_position=None):
                     in_headers = False
             elif line.strip():
                 raise ValueError(f"File does not start with an MBOX separator: {path}")
-        if message:
+        if message is not None:
             if on_position is not None:
-                on_position(expected[2])
-            parsed = _parse_message(parser, message)
-            if parsed is not None:
-                yield parsed
+                on_position(end)
+            yield message_start, end, _parse_message(parser, message) if message else None
         if fingerprint(os.fstat(source.fileno())) != expected:
-            raise ValueError(f"Mailbox changed during indexing: {path}")
+            raise MailboxChanged(f"Mailbox changed during indexing: {path}")
 
 
 def _clean_unicode(text):
@@ -146,35 +153,24 @@ def _chunk_text(text):
         start = end - CHUNK_OVERLAP
 
 
-def mailbox_chunks(path, expected, *, on_position=None):
-    seen = set()
-    for message in read_messages(path, expected, on_position=on_position):
-        if _expunged(message):
-            continue
-        raw_headers = {}
-        for name, value in message.raw_items():
-            raw_headers.setdefault(name.lower(), value)
-        metadata = {
-            key: _header_text(message, header, raw_headers.get(header.lower(), ""))
-            for key, header in (("subject", "Subject"), ("from", "From"), ("to", "To"),
-                                ("date", "Date"), ("message_id", "Message-ID"))
-        }
-        try:
-            body = _body_text(message)
-        except _MAIL_PARSE_ERRORS as error:
-            _LOGGER.warning("Using subject only for an unreadable MBOX body (%s).", type(error).__name__)
-            body = ""
-        # The Message-ID is part of the identity. Content distinguishes reused or missing IDs.
-        identity = sha256(json.dumps([metadata, body], ensure_ascii=False).encode("utf-8")).hexdigest()
-        if identity in seen:
-            continue
-        seen.add(identity)
-        texts = _chunk_text(body or metadata["subject"])
-        for chunk_index, text in enumerate(texts):
-            yield {
-                **metadata,
-                "mailbox": str(path),
-                "chunk_index": chunk_index,
-                "text": text,
-                "message_key": identity,
-            }
+def message_chunks(message):
+    if message is None or _expunged(message):
+        return None, []
+    raw_headers = {}
+    for name, value in message.raw_items():
+        raw_headers.setdefault(name.lower(), value)
+    metadata = {
+        key: _header_text(message, header, raw_headers.get(header.lower(), ""))
+        for key, header in (("subject", "Subject"), ("from", "From"), ("to", "To"),
+                            ("date", "Date"), ("message_id", "Message-ID"))
+    }
+    try:
+        body = _body_text(message)
+    except _MAIL_PARSE_ERRORS as error:
+        _LOGGER.warning("Using subject only for an unreadable MBOX body (%s).", type(error).__name__)
+        body = ""
+    # The Message-ID is part of the identity. Content distinguishes reused or missing IDs.
+    identity = sha256(json.dumps([metadata, body], ensure_ascii=False).encode("utf-8")).hexdigest()
+    rows = [{**metadata, "chunk_index": index, "text": text, "message_key": identity}
+            for index, text in enumerate(_chunk_text(body or metadata["subject"]))]
+    return (identity if rows else None), rows

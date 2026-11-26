@@ -43,6 +43,8 @@ For development, use **Debug Add-ons > Load Temporary Add-on** and select `exten
 
 The companion reads MBOX files without locking or modifying them. It downloads `intfloat/multilingual-e5-small` on first use, runs embeddings locally with ONNX Runtime, and stores the vectors and searchable text in LanceDB outside the Thunderbird profile. Coverage includes mail bodies cached locally in MBOX format. Restart the companion with the same database directory to pick up changes or resume an interrupted build. Existing embeddings are reused when possible. On Windows, the default index is in `%LOCALAPPDATA%\ThunderQuail\index`. The companion keeps the token in a separate file in the parent directory.
 
+On startup, unchanged MBOX files are skipped. For files that have changed, the companion can verify old bytes sequentially and parse only appended messages or records in changed blocks. It rescans a folder when offsets can’t be trusted, such as after compaction. Existing indexes need one scan to record offsets and block hashes, reusing compatible embeddings.
+
 Run `python -m companion --check-embeddings` to verify the embedding model without opening a mailbox. The companion binds to loopback. `GET /health` reports readiness, and `GET /scopes` and `POST /search` require the companion bearer token.
 
 ## What the chat provider receives

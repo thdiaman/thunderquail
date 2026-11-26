@@ -25,6 +25,7 @@ class IndexProgress:
 
     def position(self, offset):
         self.offset = offset
+        self.update()
 
     def finish_mailbox(self, size):
         self.finished_mailboxes += 1
@@ -52,8 +53,8 @@ class IndexProgress:
             f"{self.embedded / elapsed:.1f} new embeddings/s | elapsed {_duration(elapsed)} | estimated ETA {eta}"
         )
 
-    def finalizing(self):
+    def completed(self):
         self.report(
             f"Scan complete. Generated {self.embedded:,} embeddings, reused vectors for "
-            f"{self.reused:,} chunks. Finalizing LanceDB..."
+            f"{self.reused:,} chunks."
         )
