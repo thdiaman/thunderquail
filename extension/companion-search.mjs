@@ -5,8 +5,8 @@ const SEARCH_TIMEOUT_MS = 2000;
 const TOP_K = 4;
 
 export function companionSearchUrl(base) {
-  const url = new URL(base);
-  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" ||
+  const url = URL.canParse(base) ? new URL(base) : null;
+  if (url?.protocol !== "http:" || url.hostname !== "127.0.0.1" ||
       url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
     throw new Error(`Enter a loopback URL such as ${DEFAULT_INDEXER_URL}.`);
   }
@@ -18,24 +18,31 @@ export function isCompanionToken(token) {
 }
 
 export async function loadSearchScopes(configuration) {
+  let response;
   try {
-    const response = await fetch(new URL("/scopes", configuration.url), {
+    response = await fetch(new URL("/scopes", configuration.url), {
       headers: { Authorization: `Bearer ${configuration.token}` },
       credentials: "omit",
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS)
     });
-    if (response.ok) {
-      const catalog = await response.json();
-      if (Array.isArray(catalog.scopes) && Array.isArray(catalog.warnings)) {
-        return catalog;
-      }
-    }
-  } catch {
-    // An unavailable catalog must not prevent standalone chat.
+  } catch (error) {
+    throw new Error(error.name === "TimeoutError"
+      ? "The companion did not respond in time. Wait for Index ready and try again."
+      : "Could not reach the companion. Check the URL and wait for Index ready.", { cause: error });
   }
-  return null;
+  if (response.status === 401) {
+    throw new Error("The companion rejected the token. Run python -m companion --show-token and paste the token again.");
+  }
+  if (!response.ok) {
+    throw new Error(`The companion returned HTTP ${response.status}. Check that this URL points to ThunderQuail.`);
+  }
+  const catalog = await response.json().catch(() => null);
+  if (!Array.isArray(catalog?.scopes) || !Array.isArray(catalog?.warnings)) {
+    throw new Error("The service at this URL did not return a ThunderQuail index response.");
+  }
+  return catalog;
 }
 
 export async function searchIndexedMail(configuration, query, signal, scope = "all") {

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ThunderQuail settings</title>
   <link rel="stylesheet" href="ui.css">
   <script type="module" src="settings.mjs"></script>
@@ -19,92 +20,149 @@
         </div>
 
         <section id="model-panel" role="tabpanel" aria-labelledby="model-tab">
-          <label for="base_url">Chat API base URL</label>
-          <input id="base_url" name="base_url" type="url" list="chat-endpoints" placeholder="http://127.0.0.1:11434/v1" aria-describedby="base-hint">
+          <div class="settings-field">
+            <label for="base_url">Chat API base URL</label>
+            <input id="base_url" name="base_url" type="url" list="chat-endpoints" placeholder="http://127.0.0.1:11434/v1" aria-describedby="base-hint">
+            <small id="base-hint">Choose an Ollama endpoint or enter an OpenAI-compatible API URL.</small>
+          </div>
           <datalist id="chat-endpoints">
             <option value="http://127.0.0.1:11434/v1" label="Local Ollama"></option>
             <option value="https://ollama.com/v1" label="Ollama Cloud"></option>
           </datalist>
-          <small id="base-hint">Choose an Ollama endpoint or enter your own OpenAI-compatible API root. Ollama Cloud requires an API key.</small>
-
-          <label for="api_key">API key (optional)</label>
-          <input id="api_key" name="api_key" type="password" autocomplete="off" aria-describedby="key-hint">
-          <small id="key-hint">Stored locally in your Thunderbird profile as an extension setting.</small>
-
-          <label for="chat_model">Chat model</label>
-          <input id="chat_model" name="chat_model" type="text" spellcheck="false">
-
-          <button id="test-chat" type="button">Test chat connection</button>
+          <div class="settings-field">
+            <label for="api_key">API key <span class="settings-muted">(optional)</span></label>
+            <input id="api_key" name="api_key" type="password" autocomplete="off" aria-describedby="key-hint">
+            <small id="key-hint">Stored locally. Ollama Cloud requires an API key.</small>
+          </div>
+          <div class="settings-field">
+            <label for="chat_model">Chat model</label>
+            <input id="chat_model" name="chat_model" type="text" spellcheck="false">
+          </div>
+          <div class="settings-actions">
+            <button id="test-chat" type="button">Test chat connection</button>
+            <span id="chat-test-status" class="settings-feedback" role="status"></span>
+          </div>
         </section>
 
         <section id="writing-panel" role="tabpanel" aria-labelledby="writing-tab" hidden>
-          <label for="writing_prompt">Writing system prompt</label>
-          <textarea id="writing_prompt" name="writing_prompt" rows="4" maxlength="4000"></textarea>
-          <small>Additional style instructions for chat and compose. Leave blank to use the default.</small>
+          <div class="settings-field">
+            <label for="writing_prompt">Writing system prompt</label>
+            <textarea id="writing_prompt" name="writing_prompt" rows="5" maxlength="4000" aria-describedby="writing-prompt-hint"></textarea>
+            <small id="writing-prompt-hint">Style instructions for chat and compose. Leave blank to use the default.</small>
+          </div>
 
-          <details id="writing-profile-settings">
+          <details id="writing-profile-settings" class="settings-disclosure">
             <summary>Writing profile from Sent mail</summary>
-            <fieldset id="profile-folders">
-              <legend>Sent folders</legend>
-            </fieldset>
-            <button id="preview-style-samples" type="button" disabled>Review Sent samples</button>
-            <section id="style-sample-review" aria-label="Sent sample review" hidden>
-              <div id="style-samples"></div>
-              <small id="style-sample-destination"></small>
-              <button id="generate-writing-profile" type="button">Share samples and build profile</button>
-              <button id="discard-style-samples" type="button">Discard samples</button>
-            </section>
-            <label for="writing_profile">Writing profile</label>
-            <textarea id="writing_profile" name="writing_profile" rows="8" maxlength="4000"></textarea>
-            <small>Review or edit the profile, then save settings to use it in compose and reply drafts. Review Sent samples again whenever you want to rebuild it. Clear the profile and save to turn it off.</small>
-            <p id="writing-profile-status" role="status"></p>
+            <div class="settings-disclosure-body">
+              <div id="profile-folders" role="group" aria-label="Sent folders"></div>
+              <div class="settings-actions">
+                <button id="preview-style-samples" type="button" disabled>Review Sent samples</button>
+                <span id="writing-profile-status" class="settings-muted" role="status"></span>
+              </div>
+              <section id="style-sample-review" aria-label="Sent sample review" hidden>
+                <div id="style-samples"></div>
+                <small id="style-sample-destination"></small>
+                <div class="settings-actions">
+                  <button id="generate-writing-profile" type="button">Share samples and build profile</button>
+                  <button id="discard-style-samples" type="button">Discard samples</button>
+                </div>
+              </section>
+            </div>
           </details>
+          <div class="settings-field">
+            <label for="writing_profile">Writing profile</label>
+            <textarea id="writing_profile" name="writing_profile" rows="6" maxlength="4000" aria-describedby="writing-profile-hint"></textarea>
+            <small id="writing-profile-hint">Edit and save this profile to use it in compose and reply drafts. Clear it and save to turn it off.</small>
+          </div>
         </section>
 
         <section id="indexing-panel" role="tabpanel" aria-labelledby="indexing-tab" hidden>
-          <h2>Set up the local companion</h2>
-          <p>From the ThunderQuail repository, install dependencies once and start the companion:</p>
-          <pre><code>python -m pip install -r companion/requirements.txt
+          <details class="settings-disclosure">
+            <summary>Download and set up the companion</summary>
+            <div class="settings-disclosure-body">
+              <ol>
+                <li>Open the <a href="https://github.com/thdiaman/thunderquail/releases/latest" target="_blank" rel="noopener noreferrer">latest ThunderQuail release</a>, download <strong>Source code (zip)</strong> under Assets, and extract it. If you already have the repository, use your checkout.</li>
+                <li>Install <a href="https://www.python.org/downloads/" target="_blank" rel="noopener noreferrer">64-bit Python 3.12</a> if you need Python. Open PowerShell or a terminal in the extracted folder that contains <code>companion/requirements.txt</code>. Use <code>python3</code> in place of <code>python</code> if that is your system’s command.</li>
+                <li>Install the dependencies once, then start the companion.
+                  <div class="settings-command">
+                    <div class="settings-command-bar">
+                      <span id="copy-setup-status" role="status"></span>
+                      <button id="copy-setup" type="button">Copy commands</button>
+                    </div>
+                    <pre><code id="setup-commands">python -m pip install -r companion/requirements.txt
 python -m companion</code></pre>
-          <p>Wait for <strong>Index ready</strong> and leave that terminal open. In a second terminal in the same directory, run <code>python -m companion --show-token</code>. Paste the token below, set the URL to <code>http://127.0.0.1:49371</code>, and save settings.</p>
-          <p>On later runs, use <code>python -m companion</code>. It reuses the token and index. If it can’t choose your profile, run <code>python -m companion --profile "path-to-your-profile"</code> with the folder shown in Thunderbird’s <strong>Help → Troubleshooting Information → Profile Folder</strong>.</p>
+                  </div>
+                  The first run downloads the embedding model and indexes locally cached MBOX mail. Wait for <strong>Index ready</strong> and leave the terminal open.
+                </li>
+                <li>In a second terminal in the same folder, run <code>python -m companion --show-token</code>. Paste the token below and use <code>http://127.0.0.1:49371</code> as the URL. Click <strong>Test companion connection</strong>, then <strong>Save settings</strong>.</li>
+              </ol>
+              <p>On later runs, use <code>python -m companion</code> from the same folder. It reuses your token and index. Press <kbd>Ctrl+C</kbd> in its terminal to stop it.</p>
+              <p>If the companion can’t choose your Thunderbird profile, open <strong>Help → Troubleshooting Information → Profile Folder</strong> in Thunderbird and use that folder’s path with <code>python -m companion --profile "path-to-your-profile"</code>. If your index is stored in a custom directory, add <code>--db-dir "path-to-your-index"</code> each time.</p>
+            </div>
+          </details>
 
-          <label for="indexer_url">Local indexer URL</label>
-          <input id="indexer_url" name="indexer_url" type="url" placeholder="http://127.0.0.1:49371">
+          <div class="settings-columns">
+            <div class="settings-field">
+              <label for="indexer_url">Local indexer URL</label>
+              <input id="indexer_url" name="indexer_url" type="url" placeholder="http://127.0.0.1:49371">
+            </div>
+            <div class="settings-field">
+              <label for="indexer_token">Companion token</label>
+              <input id="indexer_token" name="indexer_token" type="password" autocomplete="off" aria-describedby="token-hint">
+            </div>
+          </div>
+          <small id="token-hint">Get the token with <code>python -m companion --show-token</code>. Leave it blank to disable indexed search.</small>
+          <div class="settings-actions">
+            <button id="test-indexer" type="button">Test companion connection</button>
+            <span id="indexer-test-status" class="settings-feedback" role="status"></span>
+          </div>
+          <div class="settings-group">
+            <h2>Search preferences</h2>
+            <div class="settings-columns">
+              <div class="settings-field">
+                <label for="indexer_scope">Indexed search scope</label>
+                <select id="indexer_scope" name="indexer_scope">
+                  <option value="all">All indexed mail</option>
+                </select>
+              </div>
+              <div class="settings-field">
+                <label for="indexer_timeout">Search timeout (seconds)</label>
+                <input id="indexer_timeout" name="indexer_timeout" type="number" min="1" max="60" step="1" required aria-describedby="timeout-hint">
+              </div>
+            </div>
+            <small id="timeout-hint">Chat continues without indexed results after this timeout.</small>
+          </div>
 
-          <label for="indexer_token">Companion token</label>
-          <input id="indexer_token" name="indexer_token" type="password" autocomplete="off" aria-describedby="token-hint">
-          <small id="token-hint">Use the token from <code>python -m companion --show-token</code>. Leave it blank to disable indexed search.</small>
-
-          <label for="indexer_timeout">Indexed search timeout (seconds)</label>
-          <input id="indexer_timeout" name="indexer_timeout" type="number" min="1" max="60" step="1" required>
-          <small>Increase this if searching a large index needs more time. Chat continues without indexed results after this timeout.</small>
-          <small>The companion runs its Hugging Face embedding model locally.</small>
-
-          <label for="indexer_scope">Indexed search scope</label>
-          <select id="indexer_scope" name="indexer_scope">
-            <option value="all">All indexed mail</option>
-          </select>
-
-          <details id="index-coverage">
+          <details id="index-coverage" class="settings-disclosure">
             <summary>Index coverage</summary>
-            <p id="coverage-status" role="status"></p>
-            <ul id="coverage-warnings" hidden></ul>
-            <button id="refresh-coverage" type="button">Refresh coverage</button>
+            <div class="settings-disclosure-body">
+              <p id="coverage-status" role="status"></p>
+              <ul id="coverage-warnings" hidden></ul>
+              <button id="refresh-coverage" type="button">Refresh coverage</button>
+            </div>
           </details>
         </section>
 
         <section id="privacy-panel" role="tabpanel" aria-labelledby="privacy-tab" hidden>
           <h2>Excluded emails</h2>
-          <p>ThunderQuail masks detected credentials before sending text to the model. Emails marked “Never share” are excluded from email context, indexed results, and writing profile samples.</p>
-          <p id="privacy-status" role="status"></p>
+          <p class="settings-muted">Emails marked “Never share” are excluded from email context, indexed results, and writing profile samples.</p>
+          <p id="privacy-status" role="status" hidden></p>
+          <div id="privacy-empty" class="settings-empty" hidden>
+            <span aria-hidden="true">✉</span>
+            <p>No email exclusions.</p>
+          </div>
           <ul id="excluded-emails"></ul>
-          <button id="clear-chat" type="button">Clear chat history</button>
+          <div class="settings-group">
+            <h2>Chat history</h2>
+            <button id="clear-chat" type="button">Clear chat history</button>
+          </div>
         </section>
 
-        <button type="submit">Save settings</button>
+        <footer class="settings-footer">
+          <button type="submit" class="settings-primary">Save settings</button>
+          <p id="status" role="status">Loading settings…</p>
+        </footer>
       </fieldset>
-      <p id="status" role="status">Loading settings…</p>
     </form>
   </main>
 </body>

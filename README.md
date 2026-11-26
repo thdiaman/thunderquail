@@ -30,14 +30,14 @@ For development, use **Debug Add-ons > Load Temporary Add-on** and select `exten
 
 ## Add indexed search
 
-1. From the repository root, use Python 3.10 or later. Install dependencies once, then start the companion:
+1. Use your checkout or extract **Source code (zip)** from the [latest ThunderQuail release](https://github.com/thdiaman/thunderquail/releases/latest). From that directory, use Python 3.10 or later. Install dependencies once, then start the companion:
 
    ```powershell
    python -m pip install -r companion/requirements.txt
    python -m companion
    ```
 
-2. Wait for **Index ready** and leave that terminal open. In a second terminal in the same repository, run `python -m companion --show-token`. In **Settings > Indexing**, paste the token into **Companion token**, set the URL to `http://127.0.0.1:49371`, and save.
+2. Wait for **Index ready** and leave that terminal open. In a second terminal in the same directory, run `python -m companion --show-token`. In **Settings > Indexing**, paste the token into **Companion token**, set the URL to `http://127.0.0.1:49371`, click **Test companion connection**, and save.
 3. On later runs, use `python -m companion`. The companion reuses its token and index. If it cannot choose the profile, use `--profile` with the path shown under Thunderbird’s **Help > Troubleshooting Information > Profile Folder**. For an existing index in a custom location, pass the same `--db-dir` each time.
 4. **Search Index** starts in **On demand** mode when the companion is configured. The chat model can request a search when your question needs mailbox history. Review and approve the excerpts before they go to your provider. Click **Search Index** to turn searching off. Under **Settings > Indexing**, use **Indexed search scope** to restrict results by account or folder and **Index coverage** to check for skipped stores. Chat continues if the companion is offline or a search times out.
 

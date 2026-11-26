@@ -24,6 +24,9 @@ const coverage = document.querySelector("#index-coverage");
 const coverageStatus = document.querySelector("#coverage-status");
 const coverageWarnings = document.querySelector("#coverage-warnings");
 const refreshCoverageButton = document.querySelector("#refresh-coverage");
+const testIndexer = document.querySelector("#test-indexer");
+const indexerTestStatus = document.querySelector("#indexer-test-status");
+const chatTestStatus = document.querySelector("#chat-test-status");
 const indexerUrl = form.elements.namedItem("indexer_url");
 const scopeSelect = form.elements.namedItem("indexer_scope");
 const profileSettings = document.querySelector("#writing-profile-settings");
@@ -39,7 +42,9 @@ const folderLabels = new Map();
 const privacySettings = document.querySelector("#privacy-panel");
 const excludedList = document.querySelector("#excluded-emails");
 const privacyStatus = document.querySelector("#privacy-status");
+const privacyEmpty = document.querySelector("#privacy-empty");
 let catalogRequest;
+let connectionRequest;
 let scopesLoaded = false;
 
 const tabs = [...document.querySelectorAll('[role="tab"]')];
@@ -106,6 +111,55 @@ for (const name of ["base_url", "indexer_url"]) {
   input.addEventListener("input", () => validateUrl(input));
 }
 
+function indexerConfiguration() {
+  const url = companionSearchUrl(indexerUrl.value.trim() || DEFAULT_INDEXER_URL);
+  const token = tokenInput.value.trim();
+  if (!isCompanionToken(token)) throw new Error("Enter the companion token shown by python -m companion --show-token.");
+  return { url, token };
+}
+
+function setTestFeedback(node, text, state = "") {
+  node.textContent = text;
+  node.dataset.state = state;
+}
+
+testIndexer.addEventListener("click", async () => {
+  let configuration;
+  try {
+    configuration = indexerConfiguration();
+  } catch (error) {
+    setTestFeedback(indexerTestStatus, error.message, "error");
+    return;
+  }
+  testIndexer.disabled = true;
+  setTestFeedback(indexerTestStatus, "Testing connection…");
+  const pending = loadSearchScopes(configuration);
+  connectionRequest = pending;
+  try {
+    await pending;
+    if (connectionRequest === pending) {
+      setTestFeedback(indexerTestStatus, "Connected. The companion accepted the token.", "success");
+    }
+  } catch (error) {
+    if (connectionRequest === pending) setTestFeedback(indexerTestStatus, error.message, "error");
+  } finally {
+    if (connectionRequest === pending) {
+      connectionRequest = undefined;
+      testIndexer.disabled = false;
+    }
+  }
+});
+
+document.querySelector("#copy-setup").addEventListener("click", async () => {
+  const copyStatus = document.querySelector("#copy-setup-status");
+  try {
+    await navigator.clipboard.writeText(document.querySelector("#setup-commands").textContent.trim());
+    copyStatus.textContent = "Copied";
+  } catch {
+    copyStatus.textContent = "Select the commands to copy them.";
+  }
+});
+
 function setScopes(scopes, selected) {
   const groups = new Map();
   for (const [kind, label] of [["account", "Accounts"], ["folder", "Folders"], ["subtree", "Folders and subfolders"]]) {
@@ -125,6 +179,11 @@ function setScopes(scopes, selected) {
 }
 
 for (const input of [indexerUrl, tokenInput]) {
+  input.addEventListener("input", () => {
+    connectionRequest = undefined;
+    testIndexer.disabled = false;
+    setTestFeedback(indexerTestStatus, "");
+  });
   input.addEventListener("change", () => {
     catalogRequest = undefined;
     scopesLoaded = false;
@@ -176,27 +235,27 @@ async function refreshCoverage() {
   if (catalogRequest) return;
   coverageWarnings.replaceChildren();
   coverageWarnings.hidden = true;
-  let url;
-  const token = tokenInput.value.trim();
+  let configuration;
   try {
-    url = companionSearchUrl(indexerUrl.value.trim() || DEFAULT_INDEXER_URL);
-    if (!isCompanionToken(token)) throw new Error();
+    configuration = indexerConfiguration();
   } catch {
     coverageStatus.textContent = "Enter the local indexer URL and companion token to check coverage.";
     return;
   }
   refreshCoverageButton.disabled = true;
   coverageStatus.textContent = "Checking index coverage…";
-  const pending = loadSearchScopes({ url, token });
+  const pending = loadSearchScopes(configuration);
   catalogRequest = pending;
-  const catalog = await pending;
+  let catalog;
+  try {
+    catalog = await pending;
+  } catch (error) {
+    if (catalogRequest === pending) coverageStatus.textContent = error.message;
+  }
   if (catalogRequest !== pending) return;
   catalogRequest = undefined;
   refreshCoverageButton.disabled = false;
-  if (!catalog) {
-    coverageStatus.textContent = "Index coverage is unavailable. Check that the companion is running and the token matches.";
-    return;
-  }
+  if (!catalog) return;
   setScopes(catalog.scopes, scopeSelect.value);
   scopesLoaded = true;
   for (const warning of catalog.warnings) {
@@ -244,7 +303,8 @@ async function refreshExclusions() {
   try {
     const excluded = await loadExcludedEmails();
     excludedList.replaceChildren();
-    privacyStatus.textContent = excluded.size ? "" : "No email exclusions.";
+    privacyStatus.hidden = true;
+    privacyEmpty.hidden = Boolean(excluded.size);
     for (const [identity, subject] of excluded) {
       const item = document.createElement("li");
       const restore = document.createElement("button");
@@ -258,13 +318,16 @@ async function refreshExclusions() {
         } catch {
           restore.disabled = false;
           privacyStatus.textContent = "Could not remove the exclusion. Try again.";
+          privacyStatus.hidden = false;
         }
       });
       item.append(subject, " ", restore);
       excludedList.append(item);
     }
   } catch {
+    privacyEmpty.hidden = true;
     privacyStatus.textContent = "Could not load email exclusions.";
+    privacyStatus.hidden = false;
   }
 }
 
@@ -279,7 +342,10 @@ profileFolders.addEventListener("change", () => {
 });
 document.querySelector("#discard-style-samples").addEventListener("click", discardSamples);
 for (const name of ["base_url", "api_key", "chat_model"]) {
-  form.elements.namedItem(name).addEventListener("input", discardSamples);
+  form.elements.namedItem(name).addEventListener("input", () => {
+    discardSamples();
+    setTestFeedback(chatTestStatus, "");
+  });
 }
 
 profileSettings.addEventListener("toggle", async () => {
@@ -439,12 +505,16 @@ generateProfile.addEventListener("click", async () => {
 });
 
 document.querySelector("#test-chat").addEventListener("click", async () => {
-  const values = readForm();
-  if (!values) {
-    return;
-  }
+  const baseUrl = form.elements.namedItem("base_url");
+  validateUrl(baseUrl);
+  if (!baseUrl.reportValidity()) return;
+  const values = {
+    base_url: baseUrl.value.trim(),
+    api_key: form.elements.namedItem("api_key").value.trim(),
+    chat_model: form.elements.namedItem("chat_model").value.trim()
+  };
   fields.disabled = true;
-  status.textContent = "Testing the chat model with a sample prompt…";
+  setTestFeedback(chatTestStatus, "Testing connection…");
   try {
     const { settings, endpoint } = chatProvider(values);
     await requestChatAccess(endpoint);
@@ -453,9 +523,9 @@ document.querySelector("#test-chat").addEventListener("click", async () => {
     if (!reply.trim()) {
       throw new Error("The provider returned an empty reply.");
     }
-    status.textContent = "Chat model responded successfully.";
+    setTestFeedback(chatTestStatus, "Connected", "success");
   } catch (error) {
-    status.textContent = error.message;
+    setTestFeedback(chatTestStatus, error.message, "error");
   } finally {
     fields.disabled = false;
   }
