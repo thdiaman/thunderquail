@@ -3,8 +3,8 @@
     "thunderquail@thunderquail.local": {
       "updates": [
         {
-          "version": "0.12.6",
-          "update_link": "https://github.com/thdiaman/thunderquail/releases/download/v0.12.6/thunderquail-github.xpi"
+          "version": "0.12.7",
+          "update_link": "https://github.com/thdiaman/thunderquail/releases/download/v0.12.7/thunderquail-github.xpi"
         }
       ]
     }
