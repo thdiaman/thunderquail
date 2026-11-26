@@ -25,24 +25,23 @@ For development, use **Debug Add-ons > Load Temporary Add-on** and select `exten
 - **Chat.** To share a selected email, check **Include selected email**, then review and approve its preview after Send. Changing the selection clears the checkbox. Press **Enter** to send or **Shift+Enter** for a new line. Use **Stop** during search or streaming and **Retry** after a failed turn.
 - **Compose.** Click **ThunderQuail** in the compose toolbar to draft or rewrite. Review the preview before applying it. **Writing system prompt** in Settings customizes phrasing, greetings, and tone for chat and compose.
 - **Reply from chat.** Select one email and ask ThunderQuail to draft a reply. To use the original email text, enable **Include selected email** and approve sharing it. Review the draft in chat, then choose **Open reply draft**. Thunderbird opens a reply to the sender with the draft inserted. Edit and send it from the compose window.
-- **Writing profile.** In **Settings > Writing profile from Sent mail**, all Sent folders start checked. Uncheck any you want to exclude, then click **Review Sent samples**. ThunderQuail selects up to 12 excerpts from the last 90 days, favoring a mix of folders, Greek and Latin writing, and message lengths. Each preview shows its source folder and can be edited or removed. Only the remaining excerpt text goes to your chat provider when you approve sharing. Review and save the resulting style guide to use it in compose and reply drafts. Repeat to rebuild it, or clear the profile and save to turn it off.
+- **Writing profile.** In **Settings > Writing > Writing profile from Sent mail**, all Sent folders start checked. Uncheck any you want to exclude, then click **Review Sent samples**. ThunderQuail selects up to 12 excerpts from the last 90 days, favoring a mix of folders, Greek and Latin writing, and message lengths. Each preview shows its source folder and can be edited or removed. Only the remaining excerpt text goes to your chat provider when you approve sharing. Review and save the resulting style guide to use it in compose and reply drafts. Repeat to rebuild it, or clear the profile and save to turn it off.
 - **Mailbox actions.** Use a model that supports streaming tool calls, then ask to create, rename, or move a folder or to move messages. Review the action before approving it. Requests to delete or remove mail move it to the account's Junk folder after confirmation.
 
 ## Add indexed search
 
-1. Open **Help > Troubleshooting Information > Profile Folder > Open Folder** in Thunderbird and copy the path to the folder containing `prefs.js`.
-2. From the repository root, use Python 3.10 or later. This example runs in PowerShell:
+1. From the repository root, use Python 3.10 or later. Install dependencies once, then start the companion:
 
    ```powershell
    python -m pip install -r companion/requirements.txt
-   $env:THUNDERQUAIL_TOKEN = [guid]::NewGuid().ToString('N')
-   python -m companion --profile 'C:\path\to\profile' --db-dir "$env:LOCALAPPDATA\ThunderQuail\index"
+   python -m companion
    ```
 
-3. Wait for **Index ready**. In ThunderQuail Settings, set **Local indexer URL** to `http://127.0.0.1:5000` and **Companion token** to the same value as `THUNDERQUAIL_TOKEN`. Save the settings.
-4. **Search Index** starts in **On demand** mode when the companion is configured. The chat model can request a search when your question needs mailbox history. Review and approve the excerpts before they go to your provider. Click **Search Index** to turn searching off. Use **Settings > Indexed search scope** to restrict results by account or folder, and **Index coverage** to check for skipped stores. Chat continues if the companion is offline or a search times out.
+2. Wait for **Index ready** and leave that terminal open. In a second terminal in the same repository, run `python -m companion --show-token`. In **Settings > Indexing**, paste the token into **Companion token**, set the URL to `http://127.0.0.1:49371`, and save.
+3. On later runs, use `python -m companion`. The companion reuses its token and index. If it cannot choose the profile, use `--profile` with the path shown under Thunderbird’s **Help > Troubleshooting Information > Profile Folder**. For an existing index in a custom location, pass the same `--db-dir` each time.
+4. **Search Index** starts in **On demand** mode when the companion is configured. The chat model can request a search when your question needs mailbox history. Review and approve the excerpts before they go to your provider. Click **Search Index** to turn searching off. Under **Settings > Indexing**, use **Indexed search scope** to restrict results by account or folder and **Index coverage** to check for skipped stores. Chat continues if the companion is offline or a search times out.
 
-The companion reads MBOX files without locking or modifying them. It downloads `intfloat/multilingual-e5-small` on first use, runs embeddings locally with ONNX Runtime, and stores the vectors and searchable text in LanceDB outside the Thunderbird profile. Coverage includes mail bodies cached locally in MBOX format. Restart the companion with the same database directory to pick up changes or resume an interrupted build. Existing embeddings are reused when possible.
+The companion reads MBOX files without locking or modifying them. It downloads `intfloat/multilingual-e5-small` on first use, runs embeddings locally with ONNX Runtime, and stores the vectors and searchable text in LanceDB outside the Thunderbird profile. Coverage includes mail bodies cached locally in MBOX format. Restart the companion with the same database directory to pick up changes or resume an interrupted build. Existing embeddings are reused when possible. On Windows, the default index is in `%LOCALAPPDATA%\ThunderQuail\index`. The companion keeps the token in a separate file in the parent directory.
 
 Run `python -m companion --check-embeddings` to verify the embedding model without opening a mailbox. The companion binds to loopback. `GET /health` reports readiness, and `GET /scopes` and `POST /search` require the companion bearer token.
 

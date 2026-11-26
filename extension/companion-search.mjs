@@ -1,5 +1,6 @@
 import { mailIdentity } from "./privacy.mjs";
 
+export const DEFAULT_INDEXER_URL = "http://127.0.0.1:49371";
 const SEARCH_TIMEOUT_MS = 2000;
 const TOP_K = 4;
 
@@ -7,7 +8,7 @@ export function companionSearchUrl(base) {
   const url = new URL(base);
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" ||
       url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
-    throw new Error("Enter a loopback URL such as http://127.0.0.1:5000.");
+    throw new Error(`Enter a loopback URL such as ${DEFAULT_INDEXER_URL}.`);
   }
   return new URL("/search", url).href;
 }

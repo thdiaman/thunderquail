@@ -1,4 +1,4 @@
-import { companionSearchUrl, isCompanionToken, loadSearchScopes } from "./companion-search.mjs";
+import { companionSearchUrl, DEFAULT_INDEXER_URL, isCompanionToken, loadSearchScopes } from "./companion-search.mjs";
 import { streamChat } from "./chat-client.mjs";
 import { chatProvider } from "./provider.mjs";
 import { excludeEmails, loadExcludedEmails, redactCredentials, removeExcludedEmail } from "./privacy.mjs";
@@ -11,7 +11,7 @@ const defaults = {
   chat_model: "",
   writing_prompt: DEFAULT_WRITING_PROMPT,
   writing_profile: "",
-  indexer_url: "",
+  indexer_url: DEFAULT_INDEXER_URL,
   indexer_token: "",
   indexer_timeout: "2",
   indexer_scope: "all"
@@ -36,11 +36,38 @@ const profileStatus = document.querySelector("#writing-profile-status");
 let profileProvider;
 let loadingFolders = false;
 const folderLabels = new Map();
-const privacySettings = document.querySelector("#privacy-settings");
+const privacySettings = document.querySelector("#privacy-panel");
 const excludedList = document.querySelector("#excluded-emails");
 const privacyStatus = document.querySelector("#privacy-status");
 let catalogRequest;
 let scopesLoaded = false;
+
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+function selectTab(tab, focus = false) {
+  for (const item of tabs) {
+    const active = item === tab;
+    item.setAttribute("aria-selected", String(active));
+    item.tabIndex = active ? 0 : -1;
+    document.getElementById(item.getAttribute("aria-controls")).hidden = !active;
+  }
+  if (focus) tab.focus();
+  if (!privacySettings.hidden) refreshExclusions();
+}
+
+for (const [index, tab] of tabs.entries()) {
+  tab.addEventListener("click", () => selectTab(tab));
+  tab.addEventListener("keydown", event => {
+    const next = {
+      ArrowLeft: (index - 1 + tabs.length) % tabs.length,
+      ArrowRight: (index + 1) % tabs.length,
+      Home: 0,
+      End: tabs.length - 1
+    }[event.key];
+    if (typeof next !== "number") return;
+    event.preventDefault();
+    selectTab(tabs[next], true);
+  });
+}
 
 function validateUrl(input) {
   input.setCustomValidity("");
@@ -61,7 +88,7 @@ function validateUrl(input) {
     // Let the form display the same message for malformed URLs.
   }
   input.setCustomValidity(input.name === "indexer_url"
-    ? "Enter a loopback URL such as http://127.0.0.1:5000."
+    ? `Enter a loopback URL such as ${DEFAULT_INDEXER_URL}.`
     : "Enter an HTTP or HTTPS URL without credentials, a query, or a fragment.");
 }
 
@@ -117,7 +144,7 @@ async function loadSettings() {
       scopeSelect.append(new Option("Saved folder scope", saved.indexer_scope));
     }
     for (const name of Object.keys(defaults)) {
-      form.elements.namedItem(name).value = saved[name];
+      form.elements.namedItem(name).value = name === "indexer_url" ? saved[name] || DEFAULT_INDEXER_URL : saved[name];
     }
     if (!scopeSelect.value) scopeSelect.value = "all";
     fields.disabled = false;
@@ -132,11 +159,17 @@ function readForm() {
     validateUrl(form.elements.namedItem(name));
   }
   validateToken(tokenInput);
-  if (!form.reportValidity()) {
+  const invalid = [...form.elements].find(input => input.willValidate && !input.validity.valid);
+  if (invalid) {
+    const panel = invalid.closest('[role="tabpanel"]');
+    if (panel?.hidden) selectTab(document.getElementById(panel.getAttribute("aria-labelledby")));
+    invalid.reportValidity();
     return null;
   }
 
-  return Object.fromEntries([...new FormData(form)].map(([name, value]) => [name, value.trim()]));
+  const values = Object.fromEntries([...new FormData(form)].map(([name, value]) => [name, value.trim()]));
+  values.indexer_url ||= DEFAULT_INDEXER_URL;
+  return values;
 }
 
 async function refreshCoverage() {
@@ -146,7 +179,7 @@ async function refreshCoverage() {
   let url;
   const token = tokenInput.value.trim();
   try {
-    url = companionSearchUrl(indexerUrl.value.trim());
+    url = companionSearchUrl(indexerUrl.value.trim() || DEFAULT_INDEXER_URL);
     if (!isCompanionToken(token)) throw new Error();
   } catch {
     coverageStatus.textContent = "Enter the local indexer URL and companion token to check coverage.";
@@ -234,10 +267,6 @@ async function refreshExclusions() {
     privacyStatus.textContent = "Could not load email exclusions.";
   }
 }
-
-privacySettings.addEventListener("toggle", () => {
-  if (privacySettings.open) refreshExclusions();
-});
 
 function selectedSentFolders() {
   return [...profileFolders.querySelectorAll("input:checked")].map(input => input.value);
@@ -336,7 +365,7 @@ sampleButton.addEventListener("click", async () => {
         fields.disabled = true;
         try {
           await excludeEmails([{ identity, subject: redactCredentials(subject || "", secrets).text }]);
-          if (privacySettings.open) await refreshExclusions();
+          if (!privacySettings.hidden) await refreshExclusions();
           profileStatus.textContent = "Email excluded from future sharing.";
         } catch {
           profileStatus.textContent = "Could not save the exclusion. Try again.";

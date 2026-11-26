@@ -1,14 +1,13 @@
 import argparse
 import hmac
-import os
 import re
 import sqlite3
 from pathlib import Path
 
 from flask import Flask, jsonify, request
 
+from .config import DEFAULT_PORT, companion_token, data_directory, default_profile
 from .embeddings import DEFAULT_MODEL, Embedder, EmbeddingError
-from .index import build_index, count_chunks, search_index
 from .profile import Mailbox, build_scopes, discover_profile
 
 
@@ -16,6 +15,8 @@ EXTENSION_ORIGIN = re.compile(r"moz-extension://[a-zA-Z0-9-]+")
 
 
 def create_app(table, embedder, token, *, scopes=None, warnings=()):
+    from .index import count_chunks, search_index
+
     app = Flask(__name__)
     app.config.update(TRUSTED_HOSTS=["127.0.0.1"], MAX_CONTENT_LENGTH=32 * 1024)
     chunk_count = count_chunks(table)
@@ -89,7 +90,9 @@ def main():
                         help="Thunderbird profile containing prefs.js. Discover the profile's MBOX folders.")
     parser.add_argument("--db-dir", type=Path, metavar="DIRECTORY",
                         help="Dedicated local directory for the LanceDB index.")
-    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Loopback port (default: %(default)s).")
+    parser.add_argument("--show-token", action="store_true",
+                        help="Print the saved companion token, creating it if needed, and exit.")
     parser.add_argument("--rebuild", action="store_true", help="Re-embed all configured mailboxes.")
     parser.add_argument("--embedding-model", default=DEFAULT_MODEL,
                         help=f"Hugging Face model ID (default: {DEFAULT_MODEL}).")
@@ -107,18 +110,22 @@ def main():
             parser.exit(1, f"ThunderQuail embedding setup failed: {error}\n")
         return
 
-    if (not args.mbox and args.profile is None) or args.db_dir is None:
-        parser.error("Use --profile or --mbox, along with --db-dir, to start the companion.")
-    token = os.environ.get("THUNDERQUAIL_TOKEN", "")
-    if not token or not token.isascii() or any(not 33 <= ord(char) <= 126 for char in token):
-        parser.error("Set THUNDERQUAIL_TOKEN to a nonempty ASCII bearer token without whitespace.")
+    if args.show_token:
+        try:
+            print(companion_token(data_directory()))
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"ThunderQuail token setup failed: {error}\n")
+        return
     if not 1 <= args.port <= 65535:
         parser.error("--port must be from 1 to 65535.")
 
     try:
-        db_dir = args.db_dir.resolve()
-        if args.profile is not None:
-            profile = args.profile.resolve(strict=True)
+        from .index import build_index, count_chunks
+
+        directory = data_directory()
+        db_dir = (args.db_dir or directory / "index").resolve()
+        if not args.mbox:
+            profile = args.profile.resolve(strict=True) if args.profile else default_profile()
             if db_dir.is_relative_to(profile):
                 raise ValueError("Place --db-dir outside the Thunderbird profile.")
             mailboxes, warnings = discover_profile(profile)
@@ -129,6 +136,7 @@ def main():
         paths = list(dict.fromkeys(mailbox.path for mailbox in mailboxes))
         if any(not path.is_file() or path.is_relative_to(db_dir) for path in paths):
             raise ValueError("Each mailbox must be a file outside --db-dir.")
+        token = companion_token(directory)
         for warning in warnings:
             print(f"Skipped coverage: {warning}", flush=True)
         print(f"Loading local embedding model {args.embedding_model}…", flush=True)
