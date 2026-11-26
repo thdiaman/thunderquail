@@ -1,10 +1,12 @@
 import argparse
 import hmac
+import os
 import re
 import sqlite3
 from pathlib import Path
 
 from flask import Flask, jsonify, request
+from werkzeug.serving import make_server
 
 from .config import DEFAULT_PORT, companion_token, data_directory, default_profile
 from .embeddings import DEFAULT_MODEL, Embedder, EmbeddingError
@@ -100,6 +102,7 @@ def main():
     parser.add_argument("--check-embeddings", action="store_true",
                         help="Run local inference on synthetic text without opening any mail.")
     args = parser.parse_args()
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
     if args.check_embeddings:
         try:
@@ -137,18 +140,21 @@ def main():
         if any(not path.is_file() or path.is_relative_to(db_dir) for path in paths):
             raise ValueError("Each mailbox must be a file outside --db-dir.")
         token = companion_token(directory)
-        for warning in warnings:
-            print(f"Skipped coverage: {warning}", flush=True)
-        print(f"Loading local embedding model {args.embedding_model}…", flush=True)
+        print(f"Index directory: {db_dir}", flush=True)
+        if warnings:
+            print(f"Coverage: {len(warnings):,} stores skipped. See Settings > Indexing > Index coverage.", flush=True)
+        print(f"Loading embedding model: {args.embedding_model} (downloads files if needed).", flush=True)
         embedder = Embedder(args.embedding_model, args.embedding_revision)
         table = build_index(db_dir, paths, embedder, rebuild=args.rebuild,
                             report=lambda line: print(line, flush=True))
-        print(f"Index ready: {count_chunks(table):,} searchable chunks.", flush=True)
+        chunks = count_chunks(table)
     except (EmbeddingError, OSError, ValueError, RuntimeError, sqlite3.Error) as error:
         parser.exit(1, f"ThunderQuail index startup failed: {error}\n")
 
     app = create_app(table, embedder, token, scopes=build_scopes(mailboxes), warnings=warnings)
-    app.run(host="127.0.0.1", port=args.port, debug=False, use_reloader=False)
+    with make_server("127.0.0.1", args.port, app, threaded=True) as server:
+        print(f"Index ready: {chunks:,} searchable chunks. Listening on http://127.0.0.1:{args.port}.", flush=True)
+        server.serve_forever()
 
 
 if __name__ == "__main__":

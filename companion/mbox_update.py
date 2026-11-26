@@ -5,6 +5,7 @@ from hashlib import sha256
 from itertools import groupby
 
 from .mbox import MailboxChanged, fingerprint, message_chunks, read_records
+from .progress import size_label
 
 
 BLOCK_SIZE = 1024 * 1024
@@ -118,7 +119,7 @@ def _append_update(path, expected, old_size, records, blocks):
     return MailboxUpdate(checkpoint, _scan_rows(path, expected, checkpoint["records"], start=old_size, end=expected[2]))
 
 
-def _partial_update(path, expected, previous, on_position):
+def _partial_update(path, expected, previous, on_position, on_phase):
     old = previous["fingerprint"]
     old_size = old[2]
     new_size = expected[2]
@@ -126,9 +127,15 @@ def _partial_update(path, expected, previous, on_position):
     if old_size and (not records or records[0][0] != 0):
         return None  # A partial scan requires known coverage from the start of the file.
 
+    if on_phase is not None:
+        on_phase("Verifying previously indexed bytes")
     blocks, changed = _compare_blocks(path, expected, old_size, previous["blocks"], on_position)
     if not changed:
-        return _append_update(path, expected, old_size, records, blocks)
+        update = _append_update(path, expected, old_size, records, blocks)
+        if update is not None and on_phase is not None:
+            on_phase(f"Indexing {size_label(new_size - old_size)} of appended mail"
+                     if new_size > old_size else "Mail bytes match the checkpoint; refreshing file metadata")
+        return update
 
     ends = [record[0] for record in records[1:]] + [old_size]
     affected = [index for index, ((start, _, _), end) in enumerate(zip(records, ends))
@@ -147,6 +154,10 @@ def _partial_update(path, expected, previous, on_position):
             if not _at_separator(source, start) or (end < new_size and not _at_separator(source, end)):
                 return None
 
+    if on_phase is not None:
+        block_label = "block" if len(changed) == 1 else "blocks"
+        on_phase(f"Checking records in {len(changed):,} changed {block_label}"
+                 + (" and parsing the appended tail" if new_size > old_size else ""))
     updated = {record[0]: record for record in records}
     existing = {key: count for _, key, count in records if key}
     additions = {}
@@ -172,13 +183,21 @@ def _partial_update(path, expected, previous, on_position):
     return MailboxUpdate(checkpoint, (row for chunks in additions.values() for row in chunks), deleted=deleted)
 
 
-def plan_mailbox_update(path, expected, previous, *, on_position=None):
+def plan_mailbox_update(path, expected, previous, *, on_position=None, on_phase=None):
     old = saved_fingerprint(previous)
-    if (isinstance(previous, dict) and "blocks" in previous and "records" in previous
-            and old[:2] == list(expected[:2]) and old[2] <= expected[2]):
-        update = _partial_update(path, expected, previous, on_position)
+    if previous is None:
+        reason = "Scanning mailbox and recording message offsets"
+    elif not isinstance(previous, dict) or "blocks" not in previous or "records" not in previous:
+        reason = "Upgrading checkpoint with message offsets and block hashes"
+    elif old[:2] != list(expected[:2]) or old[2] > expected[2]:
+        reason = "Mailbox replaced or shortened; rescanning"
+    else:
+        update = _partial_update(path, expected, previous, on_position, on_phase)
         if update is not None:
             return update
         if on_position is not None:
             on_position(0)
+        reason = "Targeted update unavailable; rescanning mailbox"
+    if on_phase is not None:
+        on_phase(reason)
     return _full_update(path, expected, on_position)

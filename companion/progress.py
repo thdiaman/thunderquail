@@ -7,21 +7,44 @@ def _duration(seconds):
     return f"{hours:d}:{minutes:02d}:{seconds:02d}"
 
 
+def size_label(size):
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if size < 1024 or unit == "TiB":
+            return f"{size:,} B" if unit == "B" else f"{size:,.1f} {unit}"
+        size /= 1024
+
+
 class IndexProgress:
-    def __init__(self, report, *, mailboxes, unchanged, removed, total_bytes):
+    def __init__(self, report, *, mailboxes, unchanged, removed, total_bytes, mode):
         self.report = report
         self.mailboxes = mailboxes
         self.total_bytes = total_bytes
         self.finished_mailboxes = 0
         self.finished_bytes = 0
         self.offset = 0
+        self.folder = None
         self.embedded = 0
         self.reused = 0
         self.started = self.last_report = monotonic()
-        report(
-            f"Indexing {mailboxes:,} mailbox(es), {total_bytes / 1024**3:.2f} GiB to scan. "
-            f"{unchanged:,} unchanged; {removed:,} removed."
-        )
+        plan = []
+        if mailboxes:
+            folder_label = "folder" if mailboxes == 1 else "folders"
+            plan.append(f"{mailboxes:,} {folder_label} to process ({size_label(total_bytes)})")
+        if unchanged:
+            plan.append(f"{unchanged:,} unchanged")
+        if removed:
+            plan.append(f"{removed:,} to remove from the index")
+        report(f"{mode}. " + ("; ".join(plan) + "." if plan else "No mailboxes found."))
+
+    def start_mailbox(self, name, size):
+        self.folder = f"[{self.finished_mailboxes + 1}/{self.mailboxes}] {name} ({size_label(size)})"
+
+    def phase(self, description):
+        if self.folder is not None:
+            self.report(f"{self.folder} | {description}")
+            self.folder = None
+        else:
+            self.report(f"  {description}")
 
     def position(self, offset):
         self.offset = offset
@@ -46,15 +69,24 @@ class IndexProgress:
         elapsed = now - self.started
         scanned = min(self.finished_bytes + self.offset, self.total_bytes)
         ratio = scanned / self.total_bytes if self.total_bytes else 0
-        eta = _duration(elapsed * (1 - ratio) / ratio) if 0 < ratio < 1 else "estimating"
-        self.report(
-            f"Scan {ratio:.1%} by mailbox bytes | {self.finished_mailboxes:,}/{self.mailboxes:,} scanned | "
-            f"{self.embedded:,} embeddings generated, {self.reused:,} chunks reused | "
-            f"{self.embedded / elapsed:.1f} new embeddings/s | elapsed {_duration(elapsed)} | estimated ETA {eta}"
-        )
+        parts = [f"Elapsed {_duration(elapsed)}"]
+        if 0 < ratio < 1:
+            parts += [f"{ratio:.1%} of mailbox bytes checked", f"about {_duration(elapsed * (1 - ratio) / ratio)} left"]
+        parts.extend(self.embedding_summary())
+        self.report("  " + " | ".join(parts))
+
+    def embedding_summary(self):
+        parts = []
+        if self.embedded:
+            label = "embedding" if self.embedded == 1 else "embeddings"
+            parts.append(f"{self.embedded:,} new {label}")
+        if self.reused:
+            label = "chunk" if self.reused == 1 else "chunks"
+            parts.append(f"reused embeddings for {self.reused:,} {label}")
+        return parts
 
     def completed(self):
-        self.report(
-            f"Scan complete. Generated {self.embedded:,} embeddings, reused vectors for "
-            f"{self.reused:,} chunks."
-        )
+        parts = self.embedding_summary()
+        if not self.embedded:
+            parts.append("no new embeddings needed")
+        self.report(f"Index update finished in {_duration(monotonic() - self.started)}. " + "; ".join(parts) + ".")

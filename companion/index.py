@@ -1,9 +1,13 @@
 import itertools
 import json
 from hashlib import sha256
+from warnings import catch_warnings, filterwarnings
 
-import lancedb
-import pyarrow as pa
+with catch_warnings():
+    filterwarnings("ignore", message="Pandas requires version .* of 'bottleneck'", category=UserWarning,
+                   module=r"pandas\.core\.arrays\.masked")
+    import lancedb
+    import pyarrow as pa
 from filelock import FileLock, Timeout
 
 from .embedding_cache import EmbeddingCache
@@ -113,7 +117,7 @@ def _record_batches(batches, schema, checkpoint, mailboxes):
     }], schema=schema)
 
 
-def _commit(db, table, rows, checkpoint, mailboxes, embedder, durable, progress, delete=None):
+def _commit(db, table, rows, checkpoint, mailboxes, embedder, durable, progress, delete=None, *, replace_index=False):
     batches = _embedded_batches(rows, embedder, table, durable, progress)
     first = next(batches, [])
     batches = itertools.chain([first], batches) if first else ()
@@ -134,7 +138,8 @@ def _commit(db, table, rows, checkpoint, mailboxes, embedder, durable, progress,
 
     try:
         if create:
-            table = db.create_table(TABLE_NAME, schema=schema, mode="overwrite", data=guarded_batches())
+            mode = "overwrite" if table is not None or replace_index else "create"
+            table = db.create_table(TABLE_NAME, schema=schema, mode=mode, data=guarded_batches())
             table.create_scalar_index("embedding_key")
             return table
         records = pa.RecordBatchReader.from_batches(schema, guarded_batches())
@@ -175,24 +180,40 @@ def _update_index(db, paths, embedder, rebuild, report, durable):
 
     progress = None
     if report is not None:
+        if table is None:
+            mode = "Building the email index"
+        elif not compatible:
+            mode = "Rebuilding the email index"
+        elif any(isinstance(old_mailboxes.get(str(path)), list) for path in changed):
+            mode = "Upgrading index checkpoints; existing embeddings can be reused"
+        else:
+            mode = "Updating the email index"
         progress = IndexProgress(report, mailboxes=len(changed), unchanged=len(mailboxes) - len(changed),
-                                 removed=len(removed), total_bytes=sum(stamp[2] for stamp in changed.values()))
+                                 removed=len(removed), total_bytes=sum(stamp[2] for stamp in changed.values()),
+                                 mode=mode)
     checkpoint = {"version": INDEX_VERSION, "provider": embedder.identity, "mailboxes": dict(old_mailboxes)}
     on_position = progress.position if progress else None
+    on_phase = progress.phase if progress else None
     if table is not None and not compatible:
         def initial_rows():
             for path, stamp in mailboxes.items():
-                update = plan_mailbox_update(path, stamp, None, on_position=on_position)
+                if progress:
+                    progress.start_mailbox(path.name, stamp[2])
+                update = plan_mailbox_update(path, stamp, None, on_position=on_position, on_phase=on_phase)
                 checkpoint["mailboxes"][str(path)] = update.checkpoint
                 yield from _mailbox_rows(path, update)
                 if progress:
                     progress.finish_mailbox(stamp[2])
-        table = _commit(db, None, initial_rows(), checkpoint, mailboxes, embedder, durable, progress)
+        table = _commit(db, None, initial_rows(), checkpoint, mailboxes, embedder, durable, progress,
+                        replace_index=True)
     else:
         for path, stamp in changed.items():
             for attempt in range(2):
                 try:
-                    update = plan_mailbox_update(path, stamp, old_mailboxes.get(str(path)), on_position=on_position)
+                    if progress:
+                        progress.start_mailbox(path.name, stamp[2])
+                    update = plan_mailbox_update(path, stamp, old_mailboxes.get(str(path)),
+                                                 on_position=on_position, on_phase=on_phase)
                     checkpoint["mailboxes"][str(path)] = update.checkpoint
                     mailbox_key = _hash(str(path))
                     delete = None
