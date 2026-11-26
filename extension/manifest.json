@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ThunderQuail",
-  "version": "0.12.5",
+  "version": "0.12.6",
   "description": "A local-first AI assistant for Thunderbird.",
   "browser_specific_settings": {
     "gecko": {
