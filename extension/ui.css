@@ -427,20 +427,185 @@ body.settings {
   resize: vertical;
 }
 
-.compose main {
-  width: 340px;
+.popup.compose {
+  width: 372px;
+  max-width: 100vw;
+  --compose-border: color-mix(in srgb, CanvasText 26%, Canvas);
+  --compose-tint: color-mix(in srgb, #16696c 14%, Canvas);
+  --compose-selection: color-mix(in srgb, #16696c 24%, Canvas);
 }
 
-.compose label {
+.compose-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #16696c;
+  color: white;
+}
+
+.compose-header h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.popup.compose main {
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.compose [hidden] {
+  display: none !important;
+}
+
+.compose-privacy-note {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--compose-tint);
+  font-size: 0.81rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.compose :is(label, legend) {
   display: block;
+  margin: 0 0 4px;
+  padding: 0;
+  font-size: 0.87rem;
+  font-weight: 600;
 }
 
-.compose select {
+.compose #selection-tools {
+  margin: 0 0 12px;
+  padding: 0 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--compose-border);
+  border-radius: 0;
+  gap: 10px;
+}
+
+.compose .rewrite-actions,
+.compose .translate-row {
+  display: flex;
+}
+
+.compose .rewrite-actions {
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.compose .translate-row {
+  gap: 8px;
+}
+
+.compose :is(select, textarea, input[type="text"]) {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--compose-border);
+  border-radius: 6px;
+  background: Canvas;
+  color: CanvasText;
   font: inherit;
+  font-size: 0.87rem;
+}
+
+.compose input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.compose :is(textarea, input)::placeholder {
+  color: color-mix(in srgb, CanvasText 62%, Canvas);
+  opacity: 1;
+}
+
+.compose button {
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--compose-border);
+  border-radius: 6px;
+  background: Canvas;
+  color: CanvasText;
+  font-size: 0.82rem;
+}
+
+.compose button:enabled:hover {
+  background: var(--compose-tint);
+  cursor: pointer;
+}
+
+.compose button:disabled {
+  opacity: 0.65;
+}
+
+.compose .rewrite-actions button {
+  border-radius: 999px;
+}
+
+.compose .rewrite-actions button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, #16696c 65%, CanvasText);
+  background: var(--compose-selection);
+}
+
+.compose #translate-selection {
+  flex: none;
+  background: var(--compose-tint);
+}
+
+.compose #translate-selection:enabled:hover {
+  background: var(--compose-selection);
+}
+
+.compose #generate label:not(:first-child) {
+  margin-top: 9px;
+}
+
+.compose #generate-button {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-color: #16696c;
+  background: #16696c;
+  color: white;
+  font-weight: 600;
+}
+
+.compose #generate-button:enabled:hover {
+  background: #12585b;
 }
 
 .compose #preview-section {
-  margin-top: 1rem;
+  margin-top: 10px;
+}
+
+.compose-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.compose-footer:has(#apply:not([hidden])),
+.compose-footer:has(#status:not(:empty)) {
+  margin-top: 8px;
+}
+
+.compose-footer #status {
+  flex: 1;
+  min-width: 8rem;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.compose :focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
 }
 
 #confirm-mailbox {
@@ -610,42 +775,67 @@ body.settings {
 .chat-toolbar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: 4px;
   min-height: 38px;
   padding: 4px 0;
   border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, Canvas);
+}
+
+.chat-toolbar button {
+  flex: none;
 }
 
 .chat-toolbar #new-chat {
   margin-inline-start: auto;
 }
 
+@media (max-width: 340px) {
+  .chat-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+#mail-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+#mail-menu-button .chat-icon {
+  width: 12px;
+  height: 12px;
+}
+
 #mail-menu {
-  position: relative;
-  font-size: 0.8rem;
-}
-
-#mail-menu summary {
-  padding: 3px 7px;
-  cursor: pointer;
-}
-
-#mail-menu summary:hover {
-  background: var(--chat-ghost-hover);
-}
-
-.mail-menu-panel {
-  position: absolute;
-  z-index: 1;
-  inset-inline-start: 0;
-  display: grid;
-  gap: 4px;
-  width: max-content;
-  padding: 6px;
-  border: 1px solid color-mix(in srgb, CanvasText 22%, Canvas);
+  --mail-menu-width: 10rem;
+  position: fixed;
+  inset: auto;
+  left: max(6px, min(var(--mail-menu-anchor, 6px), 100vw - var(--mail-menu-width) - 6px));
+  width: var(--mail-menu-width);
+  max-width: calc(100vw - 12px);
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 0;
   border-radius: 6px;
   background: Canvas;
+  color: CanvasText;
+  box-shadow: 0 2px 10px color-mix(in srgb, CanvasText 23%, transparent);
+}
+
+#mail-menu:popover-open {
+  display: grid;
+}
+
+#mail-menu button {
+  margin: 0;
+  padding: 6px 9px;
+  text-align: start;
+}
+
+#mail-menu button:focus-visible {
+  outline-offset: -2px;
 }
 
 .mail-results {
@@ -732,7 +922,7 @@ body.settings {
   padding: 3px 24px 3px 8px;
   border: none;
   border-radius: 999px;
-  background: light-dark(rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.12));
+  background: light-dark(rgba(0, 0, 0, 0.03), rgba(255, 255, 255, 0.08));
   color: CanvasText;
   font: inherit;
   font-size: 0.8rem;
@@ -750,6 +940,27 @@ body.settings {
   height: 13px;
   transform: translateY(-50%);
   pointer-events: none;
+}
+
+.attachment-exclusion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, CanvasText 13%, transparent);
+  color: color-mix(in srgb, CanvasText 74%, Canvas);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.attachment-exclusion input {
+  margin: 0;
+  accent-color: #16696c;
+}
+
+.attachment-exclusion:has(input:enabled) {
+  cursor: pointer;
 }
 
 #context-subject {
@@ -774,13 +985,19 @@ body.settings {
 
 #index-toggle {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
   align-items: center;
   gap: 5px;
   margin: 0;
   font-weight: 500;
   white-space: nowrap;
+  min-width: 0;
   font-size: 0.8rem;
+}
+
+#index-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #index-toggle:has(input:enabled) {
@@ -793,6 +1010,7 @@ body.settings {
 }
 
 .index-dot {
+  flex: none;
   width: 9px;
   height: 9px;
   border-radius: 50%;
@@ -804,6 +1022,7 @@ body.settings {
 }
 
 .model-chip {
+  flex: 0 3 auto;
   min-width: 0;
   max-width: min(40%, 180px);
   padding: 1px 8px;
@@ -857,8 +1076,7 @@ body.settings {
   color: color-mix(in srgb, CanvasText 80%, Canvas);
 }
 
-.overlay-chat :where(.chat-chip, .chat-toolbar button, #exclude-attachment),
-.compose #selection-tools button {
+.overlay-chat :where(.chat-chip, .chat-toolbar button, #mail-menu button) {
   font: inherit;
   font-size: 0.8rem;
   line-height: 1.3;
@@ -870,8 +1088,7 @@ body.settings {
   color: CanvasText;
 }
 
-.overlay-chat :where(.chat-chip, .chat-toolbar button, #exclude-attachment):enabled:hover,
-.compose #selection-tools button:enabled:hover {
+.overlay-chat :where(.chat-chip, .chat-toolbar button, #mail-menu button):enabled:hover {
   background: color-mix(in srgb, #16696c 16%, Canvas);
   cursor: pointer;
 }
@@ -905,6 +1122,29 @@ body.settings {
   min-height: 24px;
   padding: 3px 6px;
   font-size: 12px;
+  color: color-mix(in srgb, CanvasText 72%, Canvas);
+}
+
+.overlay-chat .indexed-sources button,
+.overlay-chat #quick-actions button {
+  border: 0;
+  min-height: 24px;
+  padding: 3px 7px;
+}
+
+.overlay-chat .indexed-sources button {
+  border-radius: 999px;
+  background: color-mix(in srgb, #16696c 9%, Canvas);
+  font-size: 12px;
+}
+
+.overlay-chat #quick-actions button {
+  border-radius: 6px;
+  background: light-dark(#f0f0f0, color-mix(in srgb, CanvasText 12%, Canvas));
+}
+
+.overlay-chat :is(.indexed-sources, #quick-actions) button:enabled:hover {
+  background: color-mix(in srgb, #16696c 16%, Canvas);
 }
 
 .message-actions .chat-icon {
@@ -912,7 +1152,7 @@ body.settings {
   height: 14px;
 }
 
-.overlay-chat :is(.chat-ghost, .message-actions button, #attachment-scope):focus-visible {
+.overlay-chat :is(.chat-ghost, .message-actions button, .indexed-sources button, #quick-actions button, #attachment-scope, #exclude-attachment):focus-visible {
   outline: 2px solid Highlight;
   outline-offset: 2px;
 }
@@ -939,14 +1179,6 @@ body.settings {
   align-items: center;
   gap: 0.5rem;
   font-weight: 500;
-}
-
-.compose #selection-tools[hidden] {
-  display: none;
-}
-
-.compose #selection-tools button {
-  margin: 0;
 }
 
 .overlay-chat #send {

@@ -12,7 +12,9 @@ const previewSection = document.querySelector("#preview-section");
 const preview = document.querySelector("#preview");
 const apply = document.querySelector("#apply");
 const status = document.querySelector("#status");
+const privacyNote = document.querySelector("#provider");
 const selectionTools = document.querySelector("#selection-tools");
+const rewriteButtons = selectionTools.querySelectorAll("[data-rewrite]");
 const translationLanguage = document.querySelector("#translation-language");
 const controller = new AbortController();
 
@@ -48,21 +50,42 @@ async function reviewRedactedRequest(request, types) {
 
 function clearPreview() {
   previewMode = undefined;
-  previewSection.hidden = true;
+  previewSection.hidden = apply.hidden = true;
   preview.value = "";
 }
 
-mode.addEventListener("change", clearPreview);
-function rewriteSelection(instructions) {
+function selectRewrite(active) {
+  for (const button of rewriteButtons) button.setAttribute("aria-pressed", String(button === active));
+}
+
+function showMode() {
+  const text = { draft: "", selection: "selected text, ", body: "draft text, " }[mode.value];
+  privacyNote.textContent = `Your name, prompt, ${text}and writing profile go to ${provider.endpoint.host} for preview generation.`;
+  privacyNote.hidden = false;
+  instruction.placeholder = mode.value === "draft" ? "Describe the email to draft" : "Additional instructions (optional)";
+}
+
+mode.addEventListener("change", () => {
+  if (previewMode) status.textContent = "";
+  clearPreview();
+  selectRewrite();
+  if (provider) showMode();
+});
+instruction.addEventListener("input", () => selectRewrite());
+
+function rewriteSelection(instructions, active) {
   if (generate.disabled || !snapshot?.selected.trim()) return;
   mode.value = "selection";
   instruction.value = instructions;
+  selectRewrite(active);
+  showMode();
   form.requestSubmit();
 }
-selectionTools.querySelectorAll("[data-rewrite]").forEach(button => {
-  button.addEventListener("click", () => rewriteSelection(button.dataset.rewrite));
+rewriteButtons.forEach(button => {
+  button.addEventListener("click", () => rewriteSelection(button.dataset.rewrite, button));
 });
-document.querySelector("#translate-selection").addEventListener("click", () => {
+document.querySelector("#translate-form").addEventListener("submit", event => {
+  event.preventDefault();
   const language = translationLanguage.value.trim();
   if (language) rewriteSelection(`Translate the selected text into ${language}. Preserve its meaning and names.`);
   else translationLanguage.focus();
@@ -72,8 +95,6 @@ window.addEventListener("pagehide", () => controller.abort(), { once: true });
 async function initialize() {
   try {
     provider = await loadChatProvider();
-    document.querySelector("#provider").textContent =
-      `Your sender name, instructions, any text you rewrite, and your saved writing profile go to ${provider.endpoint.origin} when you generate a preview.`;
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
     if (tab?.type !== "messageCompose") {
       throw new Error("Open ThunderQuail from the compose window.");
@@ -90,6 +111,7 @@ async function initialize() {
       mode.value = "selection";
       selectionTools.hidden = false;
     }
+    showMode();
     generate.disabled = false;
     status.textContent = "";
   } catch (error) {
@@ -140,9 +162,9 @@ ${emailWritingPrompt(provider.settings)}` },
     }
     previewMode = action;
     preview.value = result.trim();
-    previewSection.hidden = false;
+    previewSection.hidden = apply.hidden = false;
     apply.textContent = { draft: "Append to draft", selection: "Replace selection", body: "Replace entire draft body" }[action];
-    status.textContent = "";
+    status.textContent = "Preview generated.";
   } catch (error) {
     status.textContent = error.message;
   } finally {

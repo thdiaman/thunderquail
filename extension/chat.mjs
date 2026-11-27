@@ -36,6 +36,7 @@ const indexLabel = document.querySelector("#index-label");
 const confirmMailbox = document.querySelector("#confirm-mailbox");
 const confirmSharing = document.querySelector("#confirm-sharing");
 const mailMenu = document.querySelector("#mail-menu");
+const mailMenuButton = document.querySelector("#mail-menu-button");
 const mailActions = {
   latest: "Latest emails",
   unread: "Unread emails",
@@ -106,7 +107,6 @@ let attachmentRequest;
 let newChatPending = false;
 let autoFollow = true;
 let autoTarget;
-let quickActionContext;
 
 async function activeMailTab() {
   const [tab] = await browser.tabs.query({ windowId, active: true });
@@ -171,8 +171,9 @@ function confirm(panel, cancel, apply, reply, signal) {
   signal.throwIfAborted();
   panel.hidden = false;
   reply.after(panel);
-  cancel.focus();
+  cancel.focus({ preventScroll: true });
   panel.scrollIntoView({ block: "nearest" });
+  apply.scrollIntoView({ block: "nearest" });
   return new Promise(resolve => {
     const finish = approved => {
       panel.hidden = true;
@@ -187,7 +188,7 @@ function confirm(panel, cancel, apply, reply, signal) {
   });
 }
 
-async function reviewSharing(preview, reply, signal, { sources = [], types = [], prompt = false, included } = {}) {
+async function reviewSharing(preview, reply, signal, { sources = [], types = [], prompt = false, included, draft = false } = {}) {
   const content = document.querySelector("#sharing-preview");
   const warning = document.querySelector("#sharing-warning");
   const exclusions = document.querySelector("#sharing-exclusions");
@@ -195,9 +196,12 @@ async function reviewSharing(preview, reply, signal, { sources = [], types = [],
   const selections = document.querySelector("#sharing-inclusions");
   const selectedList = document.querySelector("#sharing-selected-list");
   const skip = document.querySelector("#skip-sharing");
+  const apply = document.querySelector("#allow-sharing");
   const title = document.querySelector("#sharing-title");
-  title.textContent = prompt ? "Send redacted prompt?" : "Share email context?";
-  skip.textContent = prompt ? "Cancel send" : "Skip this time";
+  confirmSharing.toggleAttribute("data-draft-review", draft);
+  title.textContent = draft ? "Use these past replies?" : prompt ? "Send redacted prompt?" : "Share email context?";
+  skip.textContent = draft ? "Draft without examples" : prompt ? "Cancel send" : "Skip this time";
+  apply.textContent = draft ? "Draft with selected replies" : "Share and continue";
   content.textContent = preview;
   document.querySelector("#sharing-destination").textContent = `Send the text below to ${endpoint.origin}?`;
   warning.hidden = !types.length;
@@ -222,7 +226,7 @@ async function reviewSharing(preview, reply, signal, { sources = [], types = [],
     return { source, checkbox, share };
   });
   try {
-    const approved = await confirm(confirmSharing, skip, document.querySelector("#allow-sharing"), reply, signal);
+    const approved = await confirm(confirmSharing, skip, apply, reply, signal);
     signal.throwIfAborted();
     if (approved && included) {
       for (const { source, share } of choices) if (share.checked) included.add(source.identity);
@@ -237,7 +241,7 @@ async function reviewSharing(preview, reply, signal, { sources = [], types = [],
   }
 }
 
-async function reviewMailResults(rows, reply, signal, { alreadyApproved = false } = {}) {
+async function reviewMailResults(rows, reply, signal, { alreadyApproved = false, draft = false } = {}) {
   if (!rows.length) return [];
   const types = new Set();
   const redact = value => {
@@ -251,7 +255,7 @@ async function reviewMailResults(rows, reply, signal, { alreadyApproved = false 
   if (!alreadyApproved) {
     const preview = sources.map(({ reference, subject, from, date, text }) =>
       `[${reference}]\nSubject: ${subject}\nFrom: ${from}\nDate: ${date}\n\n${text}`).join("\n\n");
-    if (!await reviewSharing(preview, reply, signal, { sources, types: [...types], included })) return [];
+    if (!await reviewSharing(preview, reply, signal, { sources, types: [...types], included, draft })) return [];
   }
   const excluded = await loadExcludedEmails();
   signal.throwIfAborted();
@@ -371,13 +375,11 @@ function showMessageActions(reply, { body, draft, message, email, sources = [] }
   } else if (email) {
     actions.append(messageAction("Draft reply", "reply", run(async () => {
       if (request || attachmentRequest) throw new Error("Wait for the current request to finish.");
+      autoFollow = false;
       if (pinnedEmail?.identity !== email.identity || pinnedEmail.scope !== email.scope) {
         if (!await attachContext(email.message, email.scope)) return;
       }
-      prompt.value = REPLY_PROMPT;
-      resizePrompt();
-      updateComposer();
-      prompt.focus();
+      await runQuestion(REPLY_PROMPT);
     }, "")));
   }
   const details = document.createElement("p");
@@ -607,8 +609,8 @@ removeAttachment.addEventListener("click", () => {
   prompt.focus();
 });
 
-excludeAttachment.addEventListener("click", async () => {
-  if (!pinnedEmail || request || attachmentRequest) return;
+excludeAttachment.addEventListener("change", async () => {
+  if (!excludeAttachment.checked || !pinnedEmail || request || attachmentRequest) return;
   const email = pinnedEmail;
   const operation = new AbortController();
   attachmentRequest = operation;
@@ -624,6 +626,7 @@ excludeAttachment.addEventListener("click", async () => {
   } catch {
     if (!operation.signal.aborted) status.textContent = "Could not save the email exclusion.";
   } finally {
+    excludeAttachment.checked = false;
     if (attachmentRequest === operation) {
       attachmentRequest = undefined;
       updateComposer();
@@ -665,8 +668,7 @@ function showIndexedSources(reply, matches, answer) {
   for (const match of cited.length ? cited : matches) {
     const date = new Date(match.date);
     const sender = match.from.replace(/\s*<[^>]*>\s*$/, "").trim() || match.from || "Unknown sender";
-    const label = [sender, Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString()].filter(Boolean).join(" · ");
-    const source = chip(label, async () => {
+    const source = chip(sender, async () => {
       try {
         await browser.messageDisplay.open({
           ...(match.id === undefined ? { headerMessageId: match.headerMessageId } : { messageId: match.id }),
@@ -676,7 +678,8 @@ function showIndexedSources(reply, matches, answer) {
         status.textContent = "This indexed email is no longer available in Thunderbird.";
       }
     });
-    source.title = match.subject || "(no subject)";
+    source.title = [match.subject || "(no subject)", Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString()]
+      .filter(Boolean).join(" · ");
     sources.append(source);
   }
   reply.after(sources);
@@ -704,6 +707,7 @@ function showMailResults(body, action, rows, attachment, inboxPage) {
   const note = document.createElement("div");
   note.className = "reply-result";
   note.setAttribute("role", "status");
+  if (action === "past") note.textContent = `Examples for ${attachment.subject}`;
   if (inboxPage) note.tabIndex = -1;
   if (inboxPage) note.textContent = `Page ${inboxPage.cursors.length + 1} · ${rows.length} email${rows.length === 1 ? "" : "s"}`;
   body.append(note);
@@ -722,7 +726,8 @@ function showMailResults(body, action, rows, attachment, inboxPage) {
   if (!rows.length) {
     note.textContent = inboxPage?.cursors.length ? "No more matching inbox messages."
       : action === "latest" ? "No inbox messages." : action === "unread" ? "No unread inbox messages."
-        : "No matching emails found in the indexed scope.";
+        : action === "past" ? "No usable past replies found in indexed Sent folders."
+          : "No matching emails found in the indexed scope.";
     if (navigation.childElementCount) body.append(navigation);
     return;
   }
@@ -751,16 +756,23 @@ function showMailResults(body, action, rows, attachment, inboxPage) {
   const disclosedEndpoint = endpoint?.href;
   const actions = document.createElement("div");
   actions.className = "chat-chips";
-  const ask = (label, question, mode) => chip(label, () => {
+  const ask = (label, question, mode) => chip(label, async () => {
     if (request || attachmentRequest) {
       note.textContent = "Wait for the current request to finish.";
     } else if (!endpoint) {
       note.textContent = "Configure a chat model in Settings to use these results with the assistant.";
     } else if (inboxPage && disclosedEndpoint !== endpoint.href) {
       note.textContent = "Open the inbox list again to see where its excerpts will be shared.";
-    } else if (mode !== "summary" && pinnedEmail !== attachment) {
+    } else if (mode === "compare" && pinnedEmail !== attachment) {
       note.textContent = "The attachment changed. Run the search again for this email.";
     } else {
+      if (mode === "past" && (pinnedEmail?.identity !== attachment.identity || pinnedEmail.scope !== attachment.scope)) {
+        autoFollow = false;
+        if (!await attachContext(attachment.message, attachment.scope)) {
+          if (body.isConnected) note.textContent = status.textContent || "Could not reopen the original email.";
+          return;
+        }
+      }
       runQuestion(question, undefined, { rows, mode, inbox: Boolean(inboxPage) });
     }
   });
@@ -789,7 +801,6 @@ async function runLocalMail(action, { reply, cursors = [] } = {}) {
   const indexed = action === "similar" || action === "past";
   const currentPageStatus = reply?.querySelector(".reply-result");
   reply ??= showTurn("");
-  mailMenu.open = false;
   request = new AbortController();
   updateComposer();
   status.textContent = indexed ? "Searching index…" : "Checking Thunderbird inboxes…";
@@ -820,43 +831,62 @@ async function runLocalMail(action, { reply, cursors = [] } = {}) {
   }
 }
 
-for (const button of mailMenu.querySelectorAll("[data-mail-action]")) {
-  button.addEventListener("click", () => runLocalMail(button.dataset.mailAction));
+const mailItems = [...mailMenu.querySelectorAll("[data-mail-action]")];
+for (const item of mailItems) {
+  item.addEventListener("click", () => {
+    mailMenu.hidePopover();
+    mailMenuButton.focus({ preventScroll: true });
+    runLocalMail(item.dataset.mailAction);
+  });
 }
 
-function updateQuickActions() {
-  const context = transcript.querySelector("article") ? "" : pinnedEmail ? "email" : "index";
-  if (context === quickActionContext) return;
-  quickActionContext = context;
-  quickActions.replaceChildren();
-  if (!context) return;
-  const options = context === "email" ? [
-    ["Summarize", "Summarize the attached email context."],
-    ["Extract action items", "Extract the action items from the attached email context."],
-    ["Draft a reply", REPLY_PROMPT],
-    ["Find similar emails", "similar", true],
-    ["Use similar past replies", "past", true]
-  ] : [
-    ["Latest emails", "latest"],
-    ["Unread emails", "unread"],
-    ["Find recent action items", "Search my indexed mail for recent action items.", true],
-    ["Search indexed mail", "Search my indexed mail for ", true]
-  ];
-  for (const [label, text, requiresIndex] of options) {
-    const button = chip(label, () => {
-      if (Object.hasOwn(mailActions, text)) {
-        runLocalMail(text);
-        return;
-      }
-      prompt.value = text;
-      resizePrompt();
-      updateComposer();
-      prompt.focus();
-      prompt.setSelectionRange(text.length, text.length);
-    });
-    button.dataset.requiresIndex = String(Boolean(requiresIndex));
-    quickActions.append(button);
+function placeMailMenu() {
+  const anchor = mailMenuButton.getBoundingClientRect();
+  mailMenu.style.setProperty("--mail-menu-anchor", `${anchor.left}px`);
+  mailMenu.style.top = `${anchor.bottom + 3}px`;
+  mailMenu.style.maxHeight = `${Math.max(0, innerHeight - anchor.bottom - 9)}px`;
+}
+
+mailMenu.addEventListener("beforetoggle", event => {
+  if (event.newState === "open") placeMailMenu();
+});
+
+mailMenu.addEventListener("toggle", () => {
+  const open = mailMenu.matches(":popover-open");
+  mailMenuButton.setAttribute("aria-expanded", String(open));
+  if (open) mailItems[0].focus({ preventScroll: true });
+});
+
+mailMenuButton.addEventListener("keydown", event => {
+  if (event.key !== "ArrowDown") return;
+  event.preventDefault();
+  mailMenu.showPopover();
+});
+
+mailMenu.addEventListener("keydown", event => {
+  if (event.key === "Tab") {
+    mailMenu.hidePopover();
+    mailMenuButton.focus();
+    return;
   }
+  const current = mailItems.indexOf(document.activeElement);
+  const next = {
+    ArrowDown: (current + 1) % mailItems.length,
+    ArrowUp: (current + mailItems.length - 1) % mailItems.length,
+    Home: 0,
+    End: mailItems.length - 1
+  }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  mailItems[next].focus();
+});
+
+for (const [label, question] of [
+  ["Summarize", "Summarize the attached email context."],
+  ["Action items", "Extract the action items from the attached email context."],
+  ["Draft a reply", REPLY_PROMPT]
+]) {
+  quickActions.append(chip(label, () => runQuestion(question)));
 }
 
 function updateComposer() {
@@ -864,10 +894,9 @@ function updateComposer() {
   showAttachment();
   newChat.disabled = applyingAction || newChatPending;
   updateSearchControls();
-  updateQuickActions();
+  quickActions.hidden = !pinnedEmail;
   for (const button of quickActions.querySelectorAll("button")) {
-    button.disabled = running || Boolean(attachmentRequest) ||
-      (button.dataset.requiresIndex === "true" && (!companion || !searchIndex.checked));
+    button.disabled = running || Boolean(attachmentRequest) || !endpoint;
   }
   send.type = running ? "button" : "submit";
   send.disabled = running ? applyingAction || request.signal.aborted : !endpoint || Boolean(attachmentRequest) || !prompt.value.trim();
@@ -885,7 +914,10 @@ prompt.addEventListener("input", () => {
   resizePrompt();
   updateComposer();
 });
-window.addEventListener("resize", resizePrompt);
+window.addEventListener("resize", () => {
+  resizePrompt();
+  if (mailMenu.matches(":popover-open")) placeMailMenu();
+});
 send.addEventListener("click", () => {
   if (request && !applyingAction) {
     request.abort();
@@ -905,13 +937,14 @@ prompt.addEventListener("keydown", event => {
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") {
     event.preventDefault();
-    if (!confirmSharing.hidden) {
-      document.querySelector("#skip-sharing").click();
+    if (mailMenu.matches(":popover-open")) {
+      mailMenu.hidePopover();
+      mailMenuButton.focus();
+    } else if (!confirmSharing.hidden) {
+      if (confirmSharing.hasAttribute("data-draft-review")) request?.abort();
+      else document.querySelector("#skip-sharing").click();
     } else if (!confirmMailbox.hidden) {
       document.querySelector("#cancel-action").click();
-    } else if (mailMenu.open) {
-      mailMenu.open = false;
-      mailMenu.querySelector("summary").focus();
     } else {
       browser.quailOverlay.toggle(windowId);
     }
@@ -1011,9 +1044,11 @@ async function runQuestion(question, turn, mailContext) {
       }
     }
 
+    const usingPastReplies = turn.mailContext?.mode === "past";
+    if (usingPastReplies) status.textContent = "Preparing past replies…";
     const approvedSources = turn.mailContext ? await reviewMailResults(
       await mailExcerpts(turn.mailContext.rows, request.signal, { inbox: turn.mailContext.inbox }),
-      reply, request.signal, { alreadyApproved: turn.mailContext.inbox }
+      reply, request.signal, { alreadyApproved: turn.mailContext.inbox, draft: usingPastReplies }
     ) : [];
     if (turn.mailContext && !approvedSources.length && turn.mailContext.mode !== "past") {
       reply.textContent = "No email excerpts were shared.";
@@ -1027,6 +1062,9 @@ async function runQuestion(question, turn, mailContext) {
     const userMessage = buildChatMessage(question, attachedEmail);
     if (/^draft a reply to (?:this|the attached) email[.!]?$/i.test(question)) {
       if (!attachedEmail) throw new Error("Attach the email you want to reply to, then retry.");
+      if (usingPastReplies && !approvedSources.length) {
+        result.textContent = "Using your Writing Profile and the original email. No past replies were shared.";
+      }
       status.textContent = "Drafting reply…";
       const deadline = AbortSignal.timeout(DRAFT_TIMEOUT_MS);
       let responseStarted = false;

@@ -41,15 +41,15 @@
         <span id="index-label">Search index</span>
       </label>
       <span id="model" class="model-chip" hidden></span>
-      <details id="mail-menu">
-        <summary class="chat-ghost">Mail</summary>
-        <div class="mail-menu-panel">
-          <button class="chat-chip" type="button" data-mail-action="latest">Latest emails</button>
-          <button class="chat-chip" type="button" data-mail-action="unread">Unread emails</button>
-          <button class="chat-chip" type="button" data-mail-action="similar">Find similar emails</button>
-          <button class="chat-chip" type="button" data-mail-action="past">Use similar past replies</button>
-        </div>
-      </details>
+      <button id="mail-menu-button" class="chat-ghost" type="button" popovertarget="mail-menu" aria-haspopup="menu" aria-expanded="false">
+        Mail <svg class="chat-icon" aria-hidden="true"><use href="#chat-icon-chevron"/></svg>
+      </button>
+      <div id="mail-menu" popover role="menu" aria-labelledby="mail-menu-button">
+        <button class="chat-ghost" type="button" role="menuitem" tabindex="-1" data-mail-action="latest">Latest emails</button>
+        <button class="chat-ghost" type="button" role="menuitem" tabindex="-1" data-mail-action="unread">Unread emails</button>
+        <button class="chat-ghost" type="button" role="menuitem" tabindex="-1" data-mail-action="similar">Find similar emails</button>
+        <button class="chat-ghost" type="button" role="menuitem" tabindex="-1" data-mail-action="past">Use similar past replies</button>
+      </div>
       <button id="new-chat" type="button">New chat</button>
       <button id="settings" class="chat-ghost" type="button"><span aria-hidden="true">⚙</span> Settings</button>
     </header>
@@ -83,14 +83,14 @@
         </div>
         <div id="attachment-preview" hidden>
           <pre id="attachment-text" tabindex="0"></pre>
-          <button id="exclude-attachment" type="button">Never share this email</button>
         </div>
+        <label class="attachment-exclusion"><input id="exclude-attachment" type="checkbox"> Never share this email</label>
       </div>
     </section>
     <div id="status" role="status">Loading settings…</div>
     <section id="transcript" aria-label="Conversation"></section>
     <form id="chat-form">
-      <div id="quick-actions" class="chat-chips" aria-label="Quick actions"></div>
+      <div id="quick-actions" class="chat-chips" aria-label="Quick actions" hidden></div>
       <div class="composer-line">
         <label class="visually-hidden" for="prompt">Message</label>
         <textarea id="prompt" rows="1" placeholder="Ask about your mail…" required></textarea>

@@ -96,10 +96,12 @@ export async function similarMail(companion, email, sentOnly, scope, signal) {
     { count: 50, scopes, strict: true });
   const authors = accounts && new Set(accounts.flatMap(account => account.identities ?? [])
     .filter(identity => identity.email).map(identity => identity.email.trim().toLowerCase()));
-  return uniqueMail(rows.filter(row => {
+  const candidates = rows.filter(row => {
     if (!row.identity || skip.has(row.identity) || excluded.has(row.identity)) return false;
     return !authors || authors.has((row.from.match(/<([^<>]+)>\s*$/)?.[1] ?? row.from).trim().toLowerCase());
-  }), MAIL_RESULT_LIMIT).map(row => ({ ...row, sentExample: sentOnly }));
+  });
+  return uniqueMail(sentOnly ? candidates.map(row => ({ ...row, text: sentStyleExcerpt(row.text) }))
+    .filter(row => row.text) : candidates, MAIL_RESULT_LIMIT);
 }
 
 export async function mailExcerpts(rows, signal, { inbox = false } = {}) {
@@ -124,7 +126,7 @@ export async function mailExcerpts(rows, signal, { inbox = false } = {}) {
         } finally {
           deadline.removeEventListener("abort", cancel);
         }
-      } else if (row.sentExample) text = sentStyleExcerpt(text);
+      }
       return { ...row, date: new Date(row.date).toLocaleString(), text: text?.trim(), reference: `Mail ${index + 1}` };
     }));
   signal.throwIfAborted();
