@@ -39,7 +39,7 @@ For development, use **Debug Add-ons > Load Temporary Add-on** and select `exten
 
 ## Add indexed search
 
-The chat header’s **Mail** menu has **Latest emails** and **Unread emails**. These use Thunderbird’s inboxes directly and work without the companion or a chat model. The latest view covers the last 30 days. The unread view shows the newest unread messages regardless of age. Click a result to open it, or choose **Summarize results** and approve the excerpts to share with your provider.
+The chat header’s **Mail** menu has **Latest emails** and **Unread emails**. These use Thunderbird’s inboxes directly and work without the companion or a chat model. Each page shows up to 20 messages, newest first. Use **Older emails** to see more. Click a result to open it. To summarize a page, click its **Summarize these emails** button to share the listed subjects, senders, dates, and excerpts with the provider shown on the card. Never-share exclusions still apply.
 
 With an email attached and the companion connected, **Mail > Find similar emails** searches using the attachment and opens a local list of distinct matches. It skips the original and messages in its Thunderbird folder thread. **Use similar past replies** searches indexed Thunderbird Sent folders for messages from your identities. Review the examples under **Draft with these replies** before sharing them with your provider. Standard drafts use your Writing Profile and the current email. Restart the companion from this checkout to enable Sent folder search with an existing index.
 

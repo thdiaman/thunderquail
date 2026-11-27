@@ -5,6 +5,8 @@ import { sentStyleExcerpt } from "./sent-style.mjs";
 
 export const MAIL_RESULT_LIMIT = 10;
 export const MAIL_SHARE_LIMIT = 4;
+export const INBOX_PAGE_SIZE = 20;
+export const INBOX_EXCERPT_LENGTH = 1200;
 const RECENT_DAYS = 30;
 
 function uniqueMail(rows, limit) {
@@ -17,31 +19,40 @@ function uniqueMail(rows, limit) {
   }).slice(0, limit);
 }
 
-export async function recentMail(unread, signal) {
-  const since = new Date(Date.now() - RECENT_DAYS * 86400000);
+export async function recentMail(unread, signal, before) {
   const inboxes = (await browser.folders.query({ specialUse: ["inbox"] }))
     .filter(folder => !folder.isVirtual && !folder.isUnified);
   const recent = [];
-  for (const folder of inboxes) {
-    signal.throwIfAborted();
-    let page = await browser.messages.query({ folderId: folder.id, ...(unread ? { read: false } : { fromDate: since }) });
-    try {
-      do {
-        signal.throwIfAborted();
-        for (const message of page.messages) {
-          recent.push({ id: message.id, identity: mailIdentity(message.headerMessageId), subject: message.subject,
-            from: message.author, date: message.date, unread: message.read === false });
-        }
-        recent.sort((a, b) => new Date(b.date) - new Date(a.date));
-        recent.splice(0, recent.length, ...uniqueMail(recent, MAIL_RESULT_LIMIT));
-        if (!page.id) break;
-        page = await browser.messages.continueList(page.id);
-      } while (page);
-    } finally {
-      if (signal.aborted && page?.id) await browser.messages.abortList(page.id).catch(() => {});
+  const limit = INBOX_PAGE_SIZE + 1;
+  const compare = (a, b) => b.time - a.time || b.id - a.id;
+  const since = (before?.time ?? Date.now()) - RECENT_DAYS * 86400000;
+  async function collect(dates, minimum, maximum) {
+    for (const folder of inboxes) {
+      signal.throwIfAborted();
+      let page = await browser.messages.query({ folderId: folder.id, ...dates, ...(unread && { read: false }) });
+      try {
+        do {
+          signal.throwIfAborted();
+          for (const message of page.messages) {
+            const time = new Date(message.date).getTime();
+            const row = { id: message.id, identity: mailIdentity(message.headerMessageId), subject: message.subject,
+              from: message.author, date: message.date, unread: message.read === false, time };
+            if (time >= minimum && time < maximum && (!before || compare(row, before) > 0)) recent.push(row);
+          }
+          recent.sort(compare);
+          recent.splice(0, recent.length, ...uniqueMail(recent, limit));
+          if (!page.id) break;
+          page = await browser.messages.continueList(page.id);
+        } while (page);
+      } finally {
+        if (page?.id) await browser.messages.abortList(page.id).catch(() => {});
+      }
     }
   }
-  return recent;
+  await collect({ fromDate: new Date(since - 1), ...(before && { toDate: new Date(before.time + 1) }) },
+    since, Infinity);
+  if (recent.length < limit) await collect({ toDate: new Date(since) }, -Infinity, since);
+  return { rows: recent.slice(0, INBOX_PAGE_SIZE), hasMore: recent.length > INBOX_PAGE_SIZE };
 }
 
 function decodedFolderPath(path) {
@@ -91,10 +102,10 @@ export async function similarMail(companion, email, sentOnly, scope, signal) {
   }), MAIL_RESULT_LIMIT).map(row => ({ ...row, sentExample: sentOnly }));
 }
 
-export async function mailExcerpts(rows, signal) {
+export async function mailExcerpts(rows, signal, { inbox = false } = {}) {
   const excluded = await loadExcludedEmails();
   const results = await Promise.allSettled(rows.filter(row => row.identity && !excluded.has(row.identity))
-    .slice(0, MAIL_SHARE_LIMIT).map(async (row, index) => {
+    .slice(0, inbox ? INBOX_PAGE_SIZE : MAIL_SHARE_LIMIT).map(async (row, index) => {
       let text = row.text;
       if (row.id !== undefined) {
         const deadline = AbortSignal.any([signal, AbortSignal.timeout(4000)]);
@@ -105,7 +116,11 @@ export async function mailExcerpts(rows, signal) {
             cancel = () => reject(deadline.reason);
             deadline.addEventListener("abort", cancel, { once: true });
           });
-          text = (await Promise.race([readEmailBody(row.id), timeout])).slice(0, 1200);
+          text = (await Promise.race([readEmailBody(row.id), timeout])).slice(0, INBOX_EXCERPT_LENGTH);
+        } catch (error) {
+          signal.throwIfAborted();
+          if (!inbox) throw error;
+          text = "[Message body unavailable. Summarize from the headers only.]";
         } finally {
           deadline.removeEventListener("abort", cancel);
         }

@@ -664,6 +664,12 @@ body.settings {
   display: block;
 }
 
+.inbox-sharing-note {
+  display: block;
+  color: color-mix(in srgb, CanvasText 78%, Canvas);
+  overflow-wrap: anywhere;
+}
+
 .overlay-chat [hidden] {
   display: none !important;
 }
