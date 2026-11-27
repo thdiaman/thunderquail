@@ -28,6 +28,8 @@ class SearchScope:
     label: str
     kind: str
     paths: tuple[Path, ...]
+    account: str = ""
+    folders: tuple[str, ...] = ()
 
 
 def _read_preferences(profile):
@@ -176,7 +178,7 @@ def build_scopes(mailboxes):
 
     def add(kind, account, path, label, members):
         key = sha256(json.dumps([kind, account, path], ensure_ascii=False).encode()).hexdigest()
-        scopes[key] = SearchScope(label, kind, tuple(dict.fromkeys(member.path for member in members)))
+        scopes[key] = SearchScope(label, kind, tuple(dict.fromkeys(member.path for member in members)), account, path)
 
     for (account, name), members in folders.items():
         if account:

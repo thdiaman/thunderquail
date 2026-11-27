@@ -45,7 +45,8 @@ export async function loadSearchScopes(configuration) {
   return catalog;
 }
 
-export async function searchIndexedMail(configuration, query, signal, scope = "all") {
+export async function searchIndexedMail(configuration, query, signal, scope = "all",
+  { count = TOP_K, scopes, strict = false } = {}) {
   const searchSignal = AbortSignal.any([signal, AbortSignal.timeout(configuration.timeoutMs ?? SEARCH_TIMEOUT_MS)]);
   try {
     const response = await fetch(configuration.url, {
@@ -57,17 +58,18 @@ export async function searchIndexedMail(configuration, query, signal, scope = "a
       credentials: "omit",
       cache: "no-store",
       redirect: "error",
-      body: JSON.stringify({ query: query.slice(0, 4000), top_k: TOP_K, ...(scope !== "all" && { scope }) }),
+      body: JSON.stringify({ query: query.slice(0, 4000), top_k: count, ...(scope !== "all" && { scope }), scopes }),
       signal: searchSignal
     });
     if (!response.ok) {
-      return null;
+      throw new Error(response.status === 401 ? "The companion rejected the token. Check Settings > Indexing."
+        : `Indexed search failed (HTTP ${response.status}).`);
     }
     const { results } = await response.json();
     if (!Array.isArray(results)) {
-      return null;
+      throw new Error("The companion returned an invalid search response.");
     }
-    return results.slice(0, TOP_K).filter(row => typeof row?.text === "string" && row.text.trim())
+    return results.slice(0, count).filter(row => typeof row?.text === "string" && row.text.trim())
       .map((row, index) => ({
         identity: mailIdentity(row.message_id),
         headerMessageId: typeof row.message_id === "string" ? row.message_id.trim().replace(/^<|>$/g, "") : "",
@@ -77,8 +79,13 @@ export async function searchIndexedMail(configuration, query, signal, scope = "a
         date: typeof row.date === "string" ? row.date.slice(0, 100) : "",
         text: row.text.slice(0, 1200)
       }));
-  } catch {
+  } catch (error) {
     signal.throwIfAborted();
+    if (strict) {
+      if (searchSignal.aborted) throw new Error("The local index search timed out. Check the companion and its search timeout.");
+      if (error instanceof TypeError) throw new Error("Could not reach the local companion. Start it and try again.");
+      throw error;
+    }
     return null;
   }
 }

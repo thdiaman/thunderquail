@@ -41,6 +41,15 @@
         <span id="index-label">Search index</span>
       </label>
       <span id="model" class="model-chip" hidden></span>
+      <details id="mail-menu">
+        <summary class="chat-ghost">Mail</summary>
+        <div class="mail-menu-panel">
+          <button class="chat-chip" type="button" data-mail-action="latest">Latest emails</button>
+          <button class="chat-chip" type="button" data-mail-action="unread">Unread emails</button>
+          <button class="chat-chip" type="button" data-mail-action="similar">Find similar emails</button>
+          <button class="chat-chip" type="button" data-mail-action="past">Use similar past replies</button>
+        </div>
+      </details>
       <button id="new-chat" type="button">New chat</button>
       <button id="settings" class="chat-ghost" type="button"><span aria-hidden="true">⚙</span> Settings</button>
     </header>
@@ -94,6 +103,10 @@
     <p id="sharing-destination"></p>
     <p id="sharing-warning" role="status" hidden></p>
     <pre id="sharing-preview" tabindex="0"></pre>
+    <fieldset id="sharing-inclusions" hidden>
+      <legend>Share this time</legend>
+      <div id="sharing-selected-list"></div>
+    </fieldset>
     <fieldset id="sharing-exclusions" hidden>
       <legend>Never share these emails</legend>
       <p>Checked emails are excluded when you continue, including when you skip sharing.</p>

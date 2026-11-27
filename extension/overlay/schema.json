@@ -15,12 +15,16 @@
         "name": "getThread",
         "type": "function",
         "async": true,
-        "parameters": [{ "name": "messageId", "type": "integer" }],
+        "parameters": [
+          { "name": "messageId", "type": "integer" },
+          { "name": "includeHeaderIds", "type": "boolean", "optional": true }
+        ],
         "returns": {
           "type": "object",
           "properties": {
             "ids": { "type": "array", "items": { "type": "integer" } },
-            "total": { "type": "integer" }
+            "total": { "type": "integer" },
+            "headerIds": { "type": "array", "items": { "type": "string" }, "optional": true }
           }
         }
       }

@@ -621,6 +621,49 @@ body.settings {
   margin-inline-start: auto;
 }
 
+#mail-menu {
+  position: relative;
+  font-size: 0.8rem;
+}
+
+#mail-menu summary {
+  padding: 3px 7px;
+  cursor: pointer;
+}
+
+#mail-menu summary:hover {
+  background: var(--chat-ghost-hover);
+}
+
+.mail-menu-panel {
+  position: absolute;
+  z-index: 1;
+  inset-inline-start: 0;
+  display: grid;
+  gap: 4px;
+  width: max-content;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, CanvasText 22%, Canvas);
+  border-radius: 6px;
+  background: Canvas;
+}
+
+.mail-results {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.mail-results button {
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.mail-results small {
+  display: block;
+}
+
 .overlay-chat [hidden] {
   display: none !important;
 }
@@ -946,7 +989,8 @@ body.settings {
   font: inherit;
 }
 
-#sharing-email-list label {
+#sharing-email-list label,
+#sharing-selected-list label {
   display: block;
 }
 

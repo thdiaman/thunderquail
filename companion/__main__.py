@@ -56,7 +56,8 @@ def create_app(table, embedder, token, *, scopes=None, warnings=()):
     @app.route("/scopes", methods=["GET", "OPTIONS"])
     def list_scopes():
         return jsonify(scopes=[
-            {"id": key, "label": scope.label, "kind": scope.kind} for key, scope in scopes.items()
+            {"id": key, "label": scope.label, "kind": scope.kind, "account": scope.account, "folders": scope.folders}
+            for key, scope in scopes.items()
         ], warnings=list(warnings))
 
     @app.route("/search", methods=["POST", "OPTIONS"])
@@ -67,6 +68,7 @@ def create_app(table, embedder, token, *, scopes=None, warnings=()):
         query = body.get("query")
         top_k = body.get("top_k", 5)
         scope = body.get("scope", "all")
+        selected_scopes = body.get("scopes")
         if not isinstance(query, str) or not query.strip() or len(query) > 4000:
             return jsonify(error="query must contain 1 to 4000 characters."), 400
         if type(top_k) is not int or not 1 <= top_k <= 50:
@@ -74,6 +76,12 @@ def create_app(table, embedder, token, *, scopes=None, warnings=()):
         if not isinstance(scope, str) or (scope != "all" and scope not in scopes):
             return jsonify(error="Unknown indexed mail scope."), 400
         paths = None if scope == "all" else scopes[scope].paths
+        if "scopes" in body:
+            if (scope != "all" or not isinstance(selected_scopes, list) or not selected_scopes
+                    or len(selected_scopes) > 100
+                    or any(not isinstance(key, str) or key not in scopes for key in selected_scopes)):
+                return jsonify(error="Invalid indexed mail scopes."), 400
+            paths = tuple(dict.fromkeys(path for key in selected_scopes for path in scopes[key].paths))
         try:
             results = search_index(table, embedder, query.strip(), top_k, paths) if chunk_count else []
         except EmbeddingError as error:

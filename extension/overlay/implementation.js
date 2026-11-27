@@ -220,18 +220,22 @@ this.quailOverlay = class extends ExtensionCommon.ExtensionAPI {
   getAPI(context) {
     return {
       quailOverlay: {
-        getThread: async messageId => {
+        getThread: async (messageId, includeHeaderIds) => {
           const manager = context.extension.messageManager;
           const header = manager.get(messageId);
           const thread = header?.folder?.msgDatabase?.getThreadContainingMsgHdr(header);
           const total = thread?.numChildren ?? 1;
           const ids = new Set([messageId]);
-          for (let index = Math.max(0, total - 23); thread && index < total; index++) {
+          const first = Math.max(0, total - 23);
+          const headerIds = [];
+          for (let index = includeHeaderIds ? 0 : first; thread && index < total; index++) {
             const child = thread.getChildHdrAt(index);
+            if (includeHeaderIds && child?.messageId) headerIds.push(child.messageId);
+            if (index < first) continue;
             const id = child && manager.convert(child)?.id;
             if (Number.isInteger(id)) ids.add(id);
           }
-          return { ids: [...ids], total };
+          return { ids: [...ids], total, ...(includeHeaderIds && { headerIds }) };
         },
         toggle: async (windowId, visible) => {
           const window = this.extension.windowManager.get(windowId, context).window;

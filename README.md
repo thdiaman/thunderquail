@@ -39,6 +39,10 @@ For development, use **Debug Add-ons > Load Temporary Add-on** and select `exten
 
 ## Add indexed search
 
+The chat header’s **Mail** menu has **Latest emails** and **Unread emails**. These use Thunderbird’s inboxes directly and work without the companion or a chat model. The latest view covers the last 30 days. The unread view shows the newest unread messages regardless of age. Click a result to open it, or choose **Summarize results** and approve the excerpts to share with your provider.
+
+With an email attached and the companion connected, **Mail > Find similar emails** searches using the attachment and opens a local list of distinct matches. It skips the original and messages in its Thunderbird folder thread. **Use similar past replies** searches indexed Thunderbird Sent folders for messages from your identities. Review the examples under **Draft with these replies** before sharing them with your provider. Standard drafts use your Writing Profile and the current email. Restart the companion from this checkout to enable Sent folder search with an existing index.
+
 1. Use your checkout or extract **Source code (zip)** from the [latest ThunderQuail release](https://github.com/thdiaman/thunderquail/releases/latest). From that directory, use Python 3.10 or later. Install dependencies once, then start the companion:
 
    ```powershell
