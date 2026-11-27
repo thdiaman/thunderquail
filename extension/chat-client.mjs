@@ -7,7 +7,7 @@ function eventData(block) {
     .join("\n");
 }
 
-export async function streamChat({ base_url, api_key, chat_model, indexer_token }, messages, signal, onText, { tools, onToolCall } = {}) {
+export async function streamChat({ base_url, api_key, chat_model, indexer_token }, messages, signal, onText, { tools, onToolCall, onResponse } = {}) {
   const headers = { "Content-Type": "application/json", Accept: "text/event-stream" };
   if (api_key) {
     headers.Authorization = `Bearer ${api_key}`;
@@ -42,12 +42,12 @@ export async function streamChat({ base_url, api_key, chat_model, indexer_token 
   if (!response.body || !response.headers.get("Content-Type")?.toLowerCase().includes("text/event-stream")) {
     throw new Error("The chat provider did not return an event stream.");
   }
+  onResponse?.();
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let answer = "";
-  let finished = false;
 
   function consume(block) {
     const data = eventData(block);
@@ -70,8 +70,7 @@ export async function streamChat({ base_url, api_key, chat_model, indexer_token 
       answer += text;
       onText(answer);
     }
-    finished ||= Boolean(choice?.finish_reason);
-    return false;
+    return Boolean(choice?.finish_reason);
   }
 
   try {
@@ -87,14 +86,14 @@ export async function streamChat({ base_url, api_key, chat_model, indexer_token 
         }
       }
       if (done) {
-        if (consume(buffer) || finished) {
+        if (consume(buffer)) {
           return answer;
         }
         throw new Error("The chat stream ended before the reply completed.");
       }
     }
   } finally {
-    await reader.cancel().catch(() => {});
+    reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
