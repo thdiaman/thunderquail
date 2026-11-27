@@ -62,6 +62,15 @@ export async function loadExcludedEmails() {
     .map(([key, subject]) => [key.slice(EXCLUSION_PREFIX.length), subject]));
 }
 
+export async function isEmailExcluded(identity) {
+  const key = EXCLUSION_PREFIX + identity;
+  return Object.hasOwn(await browser.storage.local.get(key), key);
+}
+
+export function exclusionChanged(changes, identity) {
+  return Object.hasOwn(changes, EXCLUSION_PREFIX + identity);
+}
+
 export function excludeEmails(messages) {
   const entries = messages.filter(({ identity }) => identity).map(({ identity, subject }) =>
     [EXCLUSION_PREFIX + identity, redactCredentials(subject || "(no subject)").text]);

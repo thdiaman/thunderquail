@@ -578,8 +578,26 @@ body.settings {
   border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, Canvas);
 }
 
-.chat-toolbar #settings {
+.chat-toolbar #new-chat {
   margin-inline-start: auto;
+}
+
+.overlay-chat [hidden] {
+  display: none !important;
+}
+
+.attachment-controls {
+  display: grid;
+  gap: 5px;
+  margin-block-end: 5px;
+}
+
+.attachment-controls:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+#attach-email {
+  justify-self: start;
 }
 
 .mail-context {
@@ -588,10 +606,41 @@ body.settings {
   border: 1px solid color-mix(in srgb, #3295aa 65%, Canvas);
   border-radius: 6px;
   background: color-mix(in srgb, #52b8e4 33%, Canvas);
-  white-space: nowrap;
+  font-size: 0.87rem;
+  min-width: 0;
+}
+
+.attachment-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.attachment-label {
+  display: grid;
+  flex: 1 1 9rem;
+  min-width: 0;
+  margin-inline-end: 4px;
+}
+
+#context-subject {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.87rem;
+  white-space: nowrap;
+}
+
+#context-destination {
+  overflow-wrap: anywhere;
+}
+
+#attachment-text {
+  max-height: min(22vh, 10rem);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  margin-block: 5px;
 }
 
 #index-toggle {

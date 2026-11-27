@@ -15,16 +15,30 @@
         <span id="index-label">Search index</span>
       </label>
       <span id="model" class="model-chip" hidden></span>
+      <button id="new-chat" type="button">New chat</button>
       <button id="settings" type="button"><span aria-hidden="true">⚙</span> Settings</button>
     </header>
-    <p id="attachment" class="mail-context" hidden>
-      <label><input id="include-email" type="checkbox"> Include selected email</label>
-      <span id="context-subject" aria-live="polite"></span>
-    </p>
     <section id="transcript" aria-label="Conversation">
-      <p class="chat-empty">Ask me about the selected email or your indexed mail.</p>
+      <p class="chat-empty">Attach an email to discuss it, or ask about your indexed mail.</p>
     </section>
     <form id="chat-form">
+      <div class="attachment-controls">
+        <button id="attach-email" type="button" hidden>Attach selected email</button>
+        <div id="attachment" class="mail-context" hidden>
+          <div class="attachment-heading">
+            <div class="attachment-label" aria-live="polite">
+              <strong id="context-subject"></strong>
+              <small id="context-destination"></small>
+            </div>
+            <button id="preview-attachment" type="button" aria-expanded="false" aria-controls="attachment-preview">Preview</button>
+            <button id="remove-attachment" type="button">Remove</button>
+          </div>
+          <div id="attachment-preview" hidden>
+            <pre id="attachment-text" tabindex="0"></pre>
+            <button id="exclude-attachment" type="button">Never share this email</button>
+          </div>
+        </div>
+      </div>
       <div class="composer-line">
         <label class="visually-hidden" for="prompt">Message</label>
         <textarea id="prompt" rows="1" placeholder="Ask about your mail…" required></textarea>
