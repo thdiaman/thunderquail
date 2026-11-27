@@ -745,6 +745,30 @@ async function runQuestion(question, turn) {
   setAttachmentPreview(false);
   updateComposer();
   status.textContent = "Connecting…";
+  let renderFrame;
+  let streamedText = "";
+  const paintReply = () => {
+    renderFrame = undefined;
+    const follow = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
+    reply.classList.add("streaming");
+    reply.textContent = streamedText;
+    if (follow) transcript.scrollTop = transcript.scrollHeight;
+  };
+  const onText = text => {
+    if (text === streamedText) return;
+    const first = !streamedText;
+    streamedText = text;
+    if (first) paintReply();
+    else renderFrame ??= requestAnimationFrame(paintReply);
+  };
+  const finishStreaming = (showPending = true) => {
+    if (renderFrame !== undefined) {
+      cancelAnimationFrame(renderFrame);
+      renderFrame = undefined;
+      if (showPending) paintReply();
+    }
+    reply.classList.remove("streaming");
+  };
   try {
     request.signal.throwIfAborted();
     if (turn.promptTypes.length) {
@@ -777,12 +801,6 @@ Use draft_email when the user asks to write a new message. Use open_reply_draft 
       userMessage
     ];
     const calls = [];
-    const onText = text => {
-      const follow = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
-      reply.classList.add("streaming");
-      reply.textContent = text;
-      if (follow) transcript.scrollTop = transcript.scrollHeight;
-    };
     let answer;
     try {
       answer = await streamChat(settings, messages, request.signal, onText, {
@@ -790,7 +808,7 @@ Use draft_email when the user asks to write a new message. Use open_reply_draft 
         onToolCall: delta => collectToolDelta(calls, delta)
       });
     } catch (error) {
-      if (![400, 422, 501].includes(error.status) || calls.length || reply.textContent) {
+      if (![400, 422, 501].includes(error.status) || calls.length || streamedText) {
         throw error;
       }
       messages[messages.length - 1] = buildChatMessage(question, await allowedAttachment(turn.attachment));
@@ -800,7 +818,7 @@ Use draft_email when the user asks to write a new message. Use open_reply_draft 
       ], request.signal, onText);
     }
     request.signal.throwIfAborted();
-    reply.classList.remove("streaming");
+    finishStreaming();
     let matches = [];
     if (calls.length) {
       const { id, name, arguments: args } = calls[0];
@@ -808,7 +826,7 @@ Use draft_email when the user asks to write a new message. Use open_reply_draft 
       if (!parameters || Array.isArray(parameters) || typeof parameters !== "object") {
         throw new Error("The chat model returned invalid tool arguments.");
       }
-      reply.textContent = "";
+      reply.textContent = streamedText = "";
       if (name === mailboxRouter[0].function.name && !Object.keys(parameters).length) {
         status.textContent = "Preparing a mailbox proposal…";
         await proposeMailboxAction(question, reply, request.signal);
@@ -872,7 +890,7 @@ Use draft_email when the user asks to write a new message. Use open_reply_draft 
         { role: "tool", tool_call_id: id, content: JSON.stringify(searchResult) }
       ], request.signal, onText);
       request.signal.throwIfAborted();
-      reply.classList.remove("streaming");
+      finishStreaming();
     }
     if (!answer.trim()) {
       throw new Error("The chat provider returned an empty reply.");
@@ -892,8 +910,8 @@ Use draft_email when the user asks to write a new message. Use open_reply_draft 
       showIndexedSources(reply, matches, answer);
     }
   } catch (error) {
+    finishStreaming(!newChatPending);
     if (!newChatPending) {
-      reply.classList.remove("streaming");
       if (reply.textContent) renderMarkdown(reply, reply.textContent);
       showReplyResult(turn, request.signal.aborted ? "Reply stopped." : error.message, !applyingAction);
     }
