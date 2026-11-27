@@ -10,6 +10,19 @@
   <main>
     <h1>ThunderQuail compose</h1>
     <p id="provider"></p>
+    <fieldset id="selection-tools" hidden>
+      <legend>Rewrite selection</legend>
+      <div class="chat-chips">
+        <button type="button" data-rewrite="Improve clarity and flow while preserving the meaning.">Rewrite</button>
+        <button type="button" data-rewrite="Shorten the text while keeping all essential information.">Shorten</button>
+        <button type="button" data-rewrite="Use a formal tone.">Formal</button>
+        <button type="button" data-rewrite="Use a friendly tone.">Friendly</button>
+        <button type="button" data-rewrite="Use a concise tone.">Concise</button>
+      </div>
+      <label for="translation-language">Translate to</label>
+      <input id="translation-language" type="text" maxlength="80" placeholder="e.g. Greek">
+      <button id="translate-selection" type="button">Translate</button>
+    </fieldset>
     <form id="generate">
       <label for="mode">Action</label>
       <select id="mode">

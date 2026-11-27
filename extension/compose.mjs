@@ -1,4 +1,5 @@
 import { streamChat } from "./chat-client.mjs";
+import { composeSenderName } from "./draft-identity.mjs";
 import { loadChatProvider } from "./provider.mjs";
 import { redactCredentials } from "./privacy.mjs";
 import { emailWritingPrompt } from "./writing-prompt.mjs";
@@ -11,6 +12,8 @@ const previewSection = document.querySelector("#preview-section");
 const preview = document.querySelector("#preview");
 const apply = document.querySelector("#apply");
 const status = document.querySelector("#status");
+const selectionTools = document.querySelector("#selection-tools");
+const translationLanguage = document.querySelector("#translation-language");
 const controller = new AbortController();
 
 let source;
@@ -25,7 +28,8 @@ async function reviewRedactedRequest(request, types) {
   const confirm = document.querySelector("#compose-privacy-confirm");
   document.querySelector("#compose-privacy-warning").textContent =
     `Possible credentials masked (${types.join(", ")}). Send the text below to ${provider.endpoint.origin}?`;
-  contents.textContent = [request.instructions, request.text].filter(Boolean).join("\n\n");
+  contents.textContent = [request.sender_name && `Sender name · ${request.sender_name}`, request.instructions, request.text]
+    .filter(Boolean).join("\n\n");
   panel.hidden = false;
   cancel.focus();
   try {
@@ -49,13 +53,27 @@ function clearPreview() {
 }
 
 mode.addEventListener("change", clearPreview);
+function rewriteSelection(instructions) {
+  if (generate.disabled || !snapshot?.selected.trim()) return;
+  mode.value = "selection";
+  instruction.value = instructions;
+  form.requestSubmit();
+}
+selectionTools.querySelectorAll("[data-rewrite]").forEach(button => {
+  button.addEventListener("click", () => rewriteSelection(button.dataset.rewrite));
+});
+document.querySelector("#translate-selection").addEventListener("click", () => {
+  const language = translationLanguage.value.trim();
+  if (language) rewriteSelection(`Translate the selected text into ${language}. Preserve its meaning and names.`);
+  else translationLanguage.focus();
+});
 window.addEventListener("pagehide", () => controller.abort(), { once: true });
 
 async function initialize() {
   try {
     provider = await loadChatProvider();
     document.querySelector("#provider").textContent =
-      `Instructions, any text you rewrite, and your saved writing profile go to ${provider.endpoint.origin}.`;
+      `Your sender name, instructions, any text you rewrite, and your saved writing profile go to ${provider.endpoint.origin} when you generate a preview.`;
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
     if (tab?.type !== "messageCompose") {
       throw new Error("Open ThunderQuail from the compose window.");
@@ -70,6 +88,7 @@ async function initialize() {
     mode.querySelector('[value="body"]').disabled = !snapshot.text.trim();
     if (snapshot.selected.trim()) {
       mode.value = "selection";
+      selectionTools.hidden = false;
     }
     generate.disabled = false;
     status.textContent = "";
@@ -93,17 +112,20 @@ form.addEventListener("submit", async event => {
   const request = action === "draft"
     ? { action, instructions }
     : { action, instructions: instructions || "Improve clarity and grammar while preserving the meaning.", text };
-  const types = new Set();
-  for (const field of ["instructions", "text"]) {
-    if (!request[field]) continue;
-    const result = redactCredentials(request[field], [provider.settings.api_key, provider.settings.indexer_token]);
-    request[field] = result.text;
-    result.types.forEach(type => types.add(type));
-  }
   clearPreview();
   generate.disabled = mode.disabled = instruction.disabled = true;
+  selectionTools.disabled = true;
   try {
     status.textContent = "";
+    request.sender_name = await composeSenderName(source);
+    controller.signal.throwIfAborted();
+    const types = new Set();
+    for (const field of ["instructions", "text", "sender_name"]) {
+      if (!request[field]) continue;
+      const result = redactCredentials(request[field], [provider.settings.api_key, provider.settings.indexer_token]);
+      request[field] = result.text;
+      result.types.forEach(type => types.add(type));
+    }
     if (types.size && !await reviewRedactedRequest(request, [...types])) return;
     controller.signal.throwIfAborted();
     status.textContent = "Generating preview…";
@@ -125,6 +147,7 @@ ${emailWritingPrompt(provider.settings)}` },
     status.textContent = error.message;
   } finally {
     generate.disabled = mode.disabled = instruction.disabled = false;
+    selectionTools.disabled = false;
   }
 });
 

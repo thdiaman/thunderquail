@@ -10,6 +10,19 @@
           { "name": "windowId", "type": "integer" },
           { "name": "visible", "type": "boolean", "optional": true }
         ]
+      },
+      {
+        "name": "getThread",
+        "type": "function",
+        "async": true,
+        "parameters": [{ "name": "messageId", "type": "integer" }],
+        "returns": {
+          "type": "object",
+          "properties": {
+            "ids": { "type": "array", "items": { "type": "integer" } },
+            "total": { "type": "integer" }
+          }
+        }
       }
     ]
   }

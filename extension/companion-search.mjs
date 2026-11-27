@@ -70,6 +70,7 @@ export async function searchIndexedMail(configuration, query, signal, scope = "a
     return results.slice(0, TOP_K).filter(row => typeof row?.text === "string" && row.text.trim())
       .map((row, index) => ({
         identity: mailIdentity(row.message_id),
+        headerMessageId: typeof row.message_id === "string" ? row.message_id.trim().replace(/^<|>$/g, "") : "",
         reference: `Mail ${index + 1}`,
         subject: typeof row.subject === "string" ? row.subject.slice(0, 300) : "",
         from: typeof row.from === "string" ? row.from.slice(0, 300) : "",

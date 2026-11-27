@@ -19,19 +19,23 @@
       <button id="settings" type="button"><span aria-hidden="true">⚙</span> Settings</button>
     </header>
     <section id="transcript" aria-label="Conversation">
-      <p class="chat-empty">Attach an email to discuss it, or ask about your indexed mail.</p>
     </section>
     <form id="chat-form">
       <div class="attachment-controls">
-        <button id="attach-email" type="button" hidden>Attach selected email</button>
+        <button id="attach-email" class="chat-chip" type="button" hidden>+ Attach selected</button>
         <div id="attachment" class="mail-context" hidden>
           <div class="attachment-heading">
             <div class="attachment-label" aria-live="polite">
               <strong id="context-subject"></strong>
               <small id="context-destination"></small>
             </div>
-            <button id="preview-attachment" type="button" aria-expanded="false" aria-controls="attachment-preview">Preview</button>
-            <button id="remove-attachment" type="button">Remove</button>
+            <label class="visually-hidden" for="attachment-scope">Attachment scope</label>
+            <select id="attachment-scope">
+              <option value="email">This email</option>
+              <option value="thread">Full thread</option>
+            </select>
+            <button id="preview-attachment" class="chat-chip" type="button" aria-expanded="false" aria-controls="attachment-preview">Preview</button>
+            <button id="remove-attachment" class="chat-chip" type="button" aria-label="Remove attachment" title="Remove attachment">×</button>
           </div>
           <div id="attachment-preview" hidden>
             <pre id="attachment-text" tabindex="0"></pre>
@@ -39,6 +43,7 @@
           </div>
         </div>
       </div>
+      <div id="quick-actions" class="chat-chips" aria-label="Quick actions"></div>
       <div class="composer-line">
         <label class="visually-hidden" for="prompt">Message</label>
         <textarea id="prompt" rows="1" placeholder="Ask about your mail…" required></textarea>
@@ -60,15 +65,6 @@
     <div class="controls">
       <button id="skip-sharing" type="button">Continue without email</button>
       <button id="allow-sharing" type="button">Share and continue</button>
-    </div>
-  </section>
-  <section id="confirm-reply" aria-labelledby="reply-title" hidden>
-    <h2 id="reply-title">Open reply draft?</h2>
-    <p id="reply-target"></p>
-    <pre id="reply-preview" tabindex="0"></pre>
-    <div class="controls">
-      <button id="cancel-reply" type="button">Cancel</button>
-      <button id="open-reply" type="button">Open reply draft</button>
     </div>
   </section>
   <section id="confirm-mailbox" aria-labelledby="confirm-title" hidden>

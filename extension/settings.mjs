@@ -9,6 +9,7 @@ const defaults = {
   base_url: "",
   api_key: "",
   chat_model: "",
+  auto_attach_email: true,
   writing_prompt: DEFAULT_WRITING_PROMPT,
   writing_profile: "",
   indexer_url: DEFAULT_INDEXER_URL,
@@ -203,7 +204,9 @@ async function loadSettings() {
       scopeSelect.append(new Option("Saved folder scope", saved.indexer_scope));
     }
     for (const name of Object.keys(defaults)) {
-      form.elements.namedItem(name).value = name === "indexer_url" ? saved[name] || DEFAULT_INDEXER_URL : saved[name];
+      const input = form.elements.namedItem(name);
+      if (name === "auto_attach_email") input.checked = saved[name] !== false;
+      else input.value = name === "indexer_url" ? saved[name] || DEFAULT_INDEXER_URL : saved[name];
     }
     if (!scopeSelect.value) scopeSelect.value = "all";
     fields.disabled = false;
@@ -228,6 +231,7 @@ function readForm() {
 
   const values = Object.fromEntries([...new FormData(form)].map(([name, value]) => [name, value.trim()]));
   values.indexer_url ||= DEFAULT_INDEXER_URL;
+  values.auto_attach_email = form.elements.namedItem("auto_attach_email").checked;
   return values;
 }
 
