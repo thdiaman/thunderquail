@@ -18,38 +18,40 @@
       <button id="new-chat" type="button">New chat</button>
       <button id="settings" type="button"><span aria-hidden="true">⚙</span> Settings</button>
     </header>
-    <section id="transcript" aria-label="Conversation">
-    </section>
-    <form id="chat-form">
-      <div class="attachment-controls">
-        <button id="attach-email" class="chat-chip" type="button" hidden>+ Attach selected</button>
-        <div id="attachment" class="mail-context" hidden>
-          <div class="attachment-heading">
-            <div class="attachment-label" aria-live="polite">
-              <strong id="context-subject"></strong>
-              <small id="context-destination"></small>
-            </div>
+    <section class="attachment-controls" aria-label="Email context">
+      <button id="attach-email" class="chat-chip" type="button" hidden>+ Attach selected</button>
+      <div id="attachment" class="mail-context" hidden>
+        <div class="attachment-heading">
+          <div class="attachment-label" aria-live="polite">
+            <strong id="context-subject"></strong>
+            <small id="context-destination"></small>
+          </div>
+          <div class="attachment-actions">
             <label class="visually-hidden" for="attachment-scope">Attachment scope</label>
             <select id="attachment-scope">
               <option value="email">This email</option>
               <option value="thread">Full thread</option>
             </select>
             <button id="preview-attachment" class="chat-chip" type="button" aria-expanded="false" aria-controls="attachment-preview">Preview</button>
+            <button id="sync-email" class="chat-chip" type="button" aria-label="Sync with selected email" hidden><span aria-hidden="true">↻</span> Sync</button>
             <button id="remove-attachment" class="chat-chip" type="button" aria-label="Remove attachment" title="Remove attachment">×</button>
           </div>
-          <div id="attachment-preview" hidden>
-            <pre id="attachment-text" tabindex="0"></pre>
-            <button id="exclude-attachment" type="button">Never share this email</button>
-          </div>
+        </div>
+        <div id="attachment-preview" hidden>
+          <pre id="attachment-text" tabindex="0"></pre>
+          <button id="exclude-attachment" type="button">Never share this email</button>
         </div>
       </div>
+    </section>
+    <div id="status" role="status">Loading settings…</div>
+    <section id="transcript" aria-label="Conversation"></section>
+    <form id="chat-form">
       <div id="quick-actions" class="chat-chips" aria-label="Quick actions"></div>
       <div class="composer-line">
         <label class="visually-hidden" for="prompt">Message</label>
         <textarea id="prompt" rows="1" placeholder="Ask about your mail…" required></textarea>
         <button id="send" type="submit" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)" disabled>↑</button>
       </div>
-      <p id="status" role="status">Loading settings…</p>
     </form>
   </main>
   <section id="confirm-sharing" aria-labelledby="sharing-title" hidden>

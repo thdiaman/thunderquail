@@ -16,17 +16,24 @@ For development, use **Debug Add-ons > Load Temporary Add-on** and select `exten
 ## Publish a release
 
 1. In the GitHub repository's **Settings > Pages**, set the source to **GitHub Actions**. Allow release tags in the `github-pages` environment if deployment restrictions apply. The release workflow's `GITHUB_TOKEN` needs permission to push the feed commit to `main`.
-2. Set the release version in `extension/manifest.json` and land the change on `main`. Tag that commit with `v` followed by the exact manifest version, such as `v0.12.4`, and push the tag. Wait for the release workflow to finish before pushing the next release tag.
-3. Verify the [published update feed](https://thdiaman.github.io/thunderquail/updates.json) points to the new GitHub XPI. The workflow publishes both packages before it commits the new feed and deploys GitHub Pages. If a run fails after publishing the release, rerun it from the same tag.
-4. Download `thunderquail-atn.xpi` from the release and submit it manually to Add-ons for Thunderbird (ATN). Once the listing is public, replace the search link in `docs/index.html` with the direct listing URL.
+2. Bump the version in `extension/manifest.json` (for example, to `0.13.1`), commit the change on `main`, and push with `git push origin main`.
+3. With the release commit still checked out, create and push a tag using `v` followed by the exact manifest version.
+
+   ```powershell
+   git tag v0.13.1
+   git push origin v0.13.1
+   ```
+
+4. Wait for the GitHub Actions release workflow to finish. It publishes both packages, commits `docs/updates.json` to `main`, and deploys GitHub Pages. With `main` checked out, run `git pull --ff-only origin main` to get the workflow’s commit. Verify the [published update feed](https://thdiaman.github.io/thunderquail/updates.json) points to the new GitHub XPI. If a run fails after publishing the release, rerun it from the same tag.
+5. Download `thunderquail-atn.xpi` from the release and submit it manually to Add-ons for Thunderbird (ATN). Once the listing is public, replace the search link in `docs/index.html` with the direct listing URL.
 
 ## Use ThunderQuail
 
-- **Chat.** An empty chat follows the email selected in Thunderbird. The composer shows the provider host and lets you preview or remove the attachment before sending. Switch to **Full thread** to include excerpts from up to 24 messages in Thunderbird’s same-folder thread. The first send or a manual removal stops the chat from following the selection. Use **Sync with selected email** or **+ Attach selected** to change what you share. Turn off **Auto-attach selected email on new chat** under **Settings > Chat & compose** to attach messages manually.
+- **Chat.** An empty chat follows the email selected in Thunderbird. The context strip below the chat header shows the provider host and lets you preview or remove the attachment before sending. Switch to **Full thread** to include excerpts from up to 24 messages in Thunderbird’s same-folder thread. The first send or a manual removal stops the chat from following the selection. Use **Sync** or **+ Attach selected** to change what you share. Turn off **Auto-attach selected email on new chat** under **Settings > Chat & compose** to attach messages manually.
 - **Quick actions.** In an empty chat, a pill fills the composer so you can edit the prompt before sending. **New chat** clears the conversation. Press **Enter** to send or **Shift+Enter** for a new line. Use **Stop** during search or streaming and **Retry** after a failed turn.
 - **Compose.** Click **ThunderQuail** in the compose toolbar to draft or rewrite. Select text before opening it to access **Rewrite**, **Shorten**, **Translate**, and tone shortcuts. Review the preview, then apply it to replace the selected text. **Writing system prompt** in Settings customizes phrasing, greetings, and tone for chat and compose.
-- **Sender name.** Draft generation can share the configured Thunderbird sender display name with the provider. In the compose window, it uses the active From identity. New drafts leave the signature to Thunderbird unless you ask for one.
-- **Draft from chat.** Ask ThunderQuail to write an email or reply, then use **Open Reply in Thunderbird**, **New Draft**, or **Copy** under the draft. A reply opens against the original email with the draft inserted. Review, edit, and send from the compose window.
+- **Thunderbird identity.** When you share an email in chat, ThunderQuail includes the account’s display name if it can resolve the identity. The attachment preview shows the name alongside the email text. In the compose window, drafting uses the active From identity. New drafts leave the signature to Thunderbird unless you ask for one.
+- **Message actions.** Use **Copy** to copy an assistant reply and **Context used** to see which email or indexed excerpts were shared. **Draft reply** prepares a prompt for the email used in that reply. Generated drafts offer **Open Reply in Thunderbird** when an original email is available, or **New Draft** to start a separate message. Review, edit, and send from the compose window.
 - **Writing profile.** In **Settings > Writing > Writing profile from Sent mail**, all Sent folders start checked. Uncheck any you want to exclude, then click **Review Sent samples**. ThunderQuail selects up to 12 excerpts from the last 90 days, favoring a mix of folders, Greek and Latin writing, and message lengths. Each preview shows its source folder and can be edited or removed. Only the remaining excerpt text goes to your chat provider when you approve sharing. Review and save the resulting style guide to use it in compose and reply drafts. Repeat to rebuild it, or clear the profile and save to turn it off.
 - **Mailbox actions.** Use a model that supports streaming tool calls, then ask to create, rename, or move a folder or to move messages. Review the action before approving it. Requests to delete or remove mail move it to the account's Junk folder after confirmation.
 

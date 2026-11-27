@@ -499,12 +499,27 @@ body.settings {
 }
 
 .overlay-chat #transcript .user-turn {
+  inline-size: fit-content;
   margin-inline-start: auto;
   background: color-mix(in srgb, #2c7a7b 14%, Canvas);
 }
 
 .overlay-chat #transcript .assistant-turn {
   margin-inline-end: auto;
+  background: Canvas;
+}
+
+.overlay-chat #transcript .included-email {
+  display: block;
+  margin-block-start: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.included-email:empty,
+.reply-result:empty {
+  display: none !important;
 }
 
 .message-body.streaming {
@@ -563,9 +578,16 @@ body.settings {
 }
 
 .overlay-chat #status {
+  align-self: flex-start;
   font-size: 0.8rem;
-  margin: 2px 0;
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: color-mix(in srgb, #16696c 12%, Canvas);
   overflow-wrap: anywhere;
+}
+
+.overlay-chat #status:empty {
+  display: none;
 }
 
 .chat-toolbar {
@@ -587,11 +609,8 @@ body.settings {
 }
 
 .attachment-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  margin-block-end: 5px;
+  flex: none;
+  inline-size: 100%;
 }
 
 .attachment-controls:not(:has(> :not([hidden]))) {
@@ -603,6 +622,8 @@ body.settings {
 }
 
 .mail-context {
+  box-sizing: border-box;
+  inline-size: 100%;
   margin: 0;
   padding: 5px 8px;
   border: 1px solid color-mix(in srgb, #16696c 42%, Canvas);
@@ -611,14 +632,22 @@ body.settings {
   font-size: 0.87rem;
   min-width: 0;
   max-width: 100%;
-  order: -1;
 }
 
 .attachment-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: 4px 8px;
+}
+
+.attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
   gap: 4px;
+  margin-inline-start: auto;
 }
 
 .attachment-label {
@@ -626,7 +655,6 @@ body.settings {
   flex: 1 1 9rem;
   min-width: 0;
   margin-inline-end: 4px;
-  max-width: min(100%, 15rem);
 }
 
 #context-subject {
@@ -697,6 +725,7 @@ body.settings {
 }
 
 .overlay-chat #prompt {
+  display: block;
   min-width: 0;
   min-height: 45px;
   max-height: min(32vh, 180px);
@@ -723,6 +752,16 @@ body.settings {
   margin-block: 0.3rem;
 }
 
+.message-actions {
+  margin-block-start: 8px;
+}
+
+.context-details {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, CanvasText 80%, Canvas);
+}
+
 .overlay-chat :is(.chat-chip, .chat-toolbar button, #attachment-scope, #exclude-attachment),
 .compose #selection-tools button {
   font: inherit;
@@ -742,12 +781,12 @@ body.settings {
   cursor: pointer;
 }
 
-.overlay-chat :is(#new-chat, .draft-actions button:first-child):enabled {
+.overlay-chat #new-chat:enabled {
   background: #16696c;
   color: white;
 }
 
-.overlay-chat :is(#new-chat, .draft-actions button:first-child, #send):enabled:hover {
+.overlay-chat :is(#new-chat, #send):enabled:hover {
   background: #12585b;
 }
 

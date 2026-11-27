@@ -87,7 +87,7 @@ export function buildChatMessage(question, attachedEmail) {
   return {
     role: "user",
     content: attachedEmail
-      ? JSON.stringify({ request: question, email_context: attachedEmail.text })
+      ? JSON.stringify({ request: question, viewer_name: attachedEmail.viewerName || undefined, email_context: attachedEmail.text })
       : question
   };
 }
