@@ -7,6 +7,32 @@
   <script type="module" src="chat.mjs"></script>
 </head>
 <body class="chat overlay-chat">
+  <svg width="0" height="0" aria-hidden="true" class="chat-icon-library">
+    <symbol id="chat-icon-eye" viewBox="0 0 24 24">
+      <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/>
+    </symbol>
+    <symbol id="chat-icon-sync" viewBox="0 0 24 24">
+      <path d="M20 4v5h-5M4 20v-5h5M4.9 9A7.5 7.5 0 0 1 18 6l2 3M4 15l2 3a7.5 7.5 0 0 0 13.1-3"/>
+    </symbol>
+    <symbol id="chat-icon-close" viewBox="0 0 24 24">
+      <path d="m6 6 12 12M18 6 6 18"/>
+    </symbol>
+    <symbol id="chat-icon-chevron" viewBox="0 0 24 24">
+      <path d="m6 9 6 6 6-6"/>
+    </symbol>
+    <symbol id="chat-icon-copy" viewBox="0 0 24 24">
+      <rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>
+    </symbol>
+    <symbol id="chat-icon-check" viewBox="0 0 24 24">
+      <path d="m5 12 5 5 9-10"/>
+    </symbol>
+    <symbol id="chat-icon-reply" viewBox="0 0 24 24">
+      <path d="m10 7-5 5 5 5M5 12h9a5 5 0 0 1 5 5v1"/>
+    </symbol>
+    <symbol id="chat-icon-context" viewBox="0 0 24 24">
+      <path d="m8 13 6-6a2 2 0 0 1 3 3l-7 7a3.5 3.5 0 0 1-5-5l8-8a5 5 0 0 1 7 7l-8 8"/>
+    </symbol>
+  </svg>
   <main>
     <header class="chat-toolbar">
       <label id="index-toggle" title="Configure the local indexer in Settings.">
@@ -16,7 +42,7 @@
       </label>
       <span id="model" class="model-chip" hidden></span>
       <button id="new-chat" type="button">New chat</button>
-      <button id="settings" type="button"><span aria-hidden="true">⚙</span> Settings</button>
+      <button id="settings" class="chat-ghost" type="button"><span aria-hidden="true">⚙</span> Settings</button>
     </header>
     <section class="attachment-controls" aria-label="Email context">
       <button id="attach-email" class="chat-chip" type="button" hidden>+ Attach selected</button>
@@ -27,14 +53,23 @@
             <small id="context-destination"></small>
           </div>
           <div class="attachment-actions">
-            <label class="visually-hidden" for="attachment-scope">Attachment scope</label>
-            <select id="attachment-scope">
-              <option value="email">This email</option>
-              <option value="thread">Full thread</option>
-            </select>
-            <button id="preview-attachment" class="chat-chip" type="button" aria-expanded="false" aria-controls="attachment-preview">Preview</button>
-            <button id="sync-email" class="chat-chip" type="button" aria-label="Sync with selected email" hidden><span aria-hidden="true">↻</span> Sync</button>
-            <button id="remove-attachment" class="chat-chip" type="button" aria-label="Remove attachment" title="Remove attachment">×</button>
+            <div class="attachment-scope-control">
+              <label class="visually-hidden" for="attachment-scope">Attachment scope</label>
+              <select id="attachment-scope">
+                <option value="email">This email</option>
+                <option value="thread">Full thread</option>
+              </select>
+              <svg class="chat-icon" aria-hidden="true"><use href="#chat-icon-chevron"/></svg>
+            </div>
+            <button id="preview-attachment" class="chat-ghost icon-button" type="button" aria-label="Preview" title="Preview attachment" aria-expanded="false" aria-controls="attachment-preview">
+              <svg class="chat-icon" aria-hidden="true"><use href="#chat-icon-eye"/></svg>
+            </button>
+            <button id="sync-email" class="chat-ghost icon-button" type="button" aria-label="Sync with selected email" title="Sync with selected email" hidden>
+              <svg class="chat-icon" aria-hidden="true"><use href="#chat-icon-sync"/></svg>
+            </button>
+            <button id="remove-attachment" class="chat-ghost icon-button" type="button" aria-label="Remove attachment" title="Remove attachment">
+              <svg class="chat-icon" aria-hidden="true"><use href="#chat-icon-close"/></svg>
+            </button>
           </div>
         </div>
         <div id="attachment-preview" hidden>

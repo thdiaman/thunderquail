@@ -266,6 +266,20 @@ function chip(label, action) {
   return button;
 }
 
+function messageAction(label, icon, action) {
+  const button = chip("", action);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const use = document.createElementNS(svg.namespaceURI, "use");
+  svg.classList.add("chat-icon");
+  svg.setAttribute("aria-hidden", "true");
+  use.setAttribute("href", `#chat-icon-${icon}`);
+  svg.append(use);
+  const text = document.createElement("span");
+  text.textContent = label;
+  button.append(svg, text);
+  return button;
+}
+
 function showMessageActions(reply, { body, draft, message, email, sources = [] }) {
   if (draft) {
     reply.classList.add("draft-body");
@@ -289,14 +303,28 @@ function showMessageActions(reply, { body, draft, message, email, sources = [] }
       button.disabled = false;
     }
   };
-  actions.append(chip("Copy", run(() => navigator.clipboard.writeText(draft || body), "Copied.")));
+  let copyFeedbackTimer;
+  const copy = messageAction("Copy", "copy", run(async () => {
+    await navigator.clipboard.writeText(draft || body);
+    clearTimeout(copyFeedbackTimer);
+    const icon = copy.querySelector("use");
+    const label = copy.lastElementChild;
+    icon.setAttribute("href", "#chat-icon-check");
+    label.textContent = "Copied";
+    copyFeedbackTimer = setTimeout(() => {
+      icon.setAttribute("href", "#chat-icon-copy");
+      label.textContent = "Copy";
+    }, 1500);
+  }, ""));
+  copy.lastElementChild.setAttribute("aria-live", "polite");
+  actions.append(copy);
   if (draft) {
     if (message) {
       actions.append(chip("Open Reply in Thunderbird", run(() => openDraft(draft, message), "Reply opened.")));
     }
     actions.append(chip("New Draft", run(() => openDraft(draft), "Draft opened.")));
   } else if (email) {
-    actions.append(chip("Draft reply", run(async () => {
+    actions.append(messageAction("Draft reply", "reply", run(async () => {
       if (request || attachmentRequest) throw new Error("Wait for the current request to finish.");
       if (pinnedEmail?.identity !== email.identity || pinnedEmail.scope !== email.scope) {
         if (!await attachContext(email.message, email.scope)) return;
@@ -311,7 +339,7 @@ function showMessageActions(reply, { body, draft, message, email, sources = [] }
   details.id = `context-used-${transcript.querySelectorAll(".assistant-turn").length}`;
   details.className = "context-details";
   details.hidden = true;
-  const context = chip("Context used", () => {
+  const context = messageAction("Context used", "context", () => {
     details.hidden = !details.hidden;
     context.setAttribute("aria-expanded", String(!details.hidden));
   });
@@ -371,7 +399,8 @@ function showAttachment() {
   attachEmail.hidden = !followedEmail || Boolean(pinnedEmail);
   syncEmail.hidden = !pinnedEmail || !followedEmail || followedEmail.id === pinnedEmail.message.id;
   attachEmail.disabled = syncEmail.disabled = busy || !endpoint;
-  attachEmail.title = syncEmail.title = followedEmail?.subject || "";
+  attachEmail.title = followedEmail?.subject || "";
+  syncEmail.title = followedEmail?.subject ? `Sync with selected email · ${followedEmail.subject}` : "Sync with selected email";
   attachment.hidden = !pinnedEmail;
   contextSubject.textContent = pinnedEmail?.subject ?? "";
   contextSubject.title = contextSubject.textContent;
