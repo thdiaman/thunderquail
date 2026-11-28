@@ -35,27 +35,25 @@
   </svg>
   <main>
     <header class="chat-toolbar">
-      <label id="index-toggle" title="Configure the local indexer in Settings.">
-        <input id="search-index" class="visually-hidden" type="checkbox" aria-label="Search indexed mail" checked disabled>
-        <span class="index-dot" aria-hidden="true"></span>
-        <span id="index-label">Search index</span>
-      </label>
-      <span id="model" class="model-chip" hidden></span>
-      <button id="mail-menu-button" class="chat-ghost" type="button" popovertarget="mail-menu" aria-haspopup="menu" aria-expanded="false">
-        Mail <svg class="chat-icon" aria-hidden="true"><use href="#chat-icon-chevron"/></svg>
+      <button id="index-status" class="chat-ghost" type="button" popovertarget="index-panel" aria-haspopup="dialog" aria-expanded="false" title="Index status">
+        <span id="index-dot" class="index-dot" data-state="not-set-up" aria-hidden="true"></span>
+        <span id="index-label">Index</span>
       </button>
-      <div id="mail-menu" popover role="menu" aria-labelledby="mail-menu-button">
-        <button class="chat-ghost" type="button" role="menuitem" tabindex="-1" data-mail-action="latest">Latest emails</button>
-        <button class="chat-ghost" type="button" role="menuitem" tabindex="-1" data-mail-action="unread">Unread emails</button>
-        <button class="chat-ghost" type="button" role="menuitem" tabindex="-1" data-mail-action="similar">Find similar emails</button>
-        <button class="chat-ghost" type="button" role="menuitem" tabindex="-1" data-mail-action="past">Use similar past replies</button>
-      </div>
+      <span id="model" class="model-chip" hidden></span>
       <button id="new-chat" type="button">New chat</button>
       <button id="settings" class="chat-ghost" type="button"><span aria-hidden="true">⚙</span> Settings</button>
     </header>
+    <div id="index-panel" popover aria-labelledby="index-panel-title">
+      <strong id="index-panel-title">Index</strong>
+      <p id="index-detail"></p>
+      <ul id="index-folders"></ul>
+      <div class="index-panel-actions">
+        <button id="index-rescan" class="chat-chip" type="button">Check for new mail now</button>
+        <small id="index-rescan-status" role="status"></small>
+      </div>
+    </div>
     <section class="attachment-controls" aria-label="Email context">
-      <button id="attach-email" class="chat-chip" type="button" hidden>+ Attach selected</button>
-      <div id="attachment" class="mail-context" hidden>
+      <div id="attachment" class="mail-context">
         <div class="attachment-heading">
           <div class="attachment-label" aria-live="polite">
             <strong id="context-subject"></strong>
@@ -73,7 +71,7 @@
             <button id="preview-attachment" class="chat-ghost icon-button" type="button" aria-label="Preview" title="Preview attachment" aria-expanded="false" aria-controls="attachment-preview">
               <svg class="chat-icon" aria-hidden="true"><use href="#chat-icon-eye"/></svg>
             </button>
-            <button id="sync-email" class="chat-ghost icon-button" type="button" aria-label="Sync with selected email" title="Sync with selected email" hidden>
+            <button id="sync-email" class="chat-ghost icon-button" type="button" aria-label="Use the selected email" title="Use the selected email">
               <svg class="chat-icon" aria-hidden="true"><use href="#chat-icon-sync"/></svg>
             </button>
             <button id="remove-attachment" class="chat-ghost icon-button" type="button" aria-label="Remove attachment" title="Remove attachment">
@@ -90,7 +88,7 @@
     <div id="status" role="status">Loading settings…</div>
     <section id="transcript" aria-label="Conversation"></section>
     <form id="chat-form">
-      <div id="quick-actions" class="chat-chips" aria-label="Quick actions" hidden></div>
+      <div id="quick-actions" class="chat-chips" aria-label="Quick actions"></div>
       <div class="composer-line">
         <label class="visually-hidden" for="prompt">Message</label>
         <textarea id="prompt" rows="1" placeholder="Ask about your mail…" required></textarea>
@@ -120,6 +118,7 @@
   <section id="confirm-mailbox" aria-labelledby="confirm-title" hidden>
       <h2 id="confirm-title">Confirm mailbox action</h2>
       <p id="mailbox-description"></p>
+      <p id="mailbox-warning" role="status" hidden></p>
       <div class="controls">
         <button id="cancel-action" type="button">Cancel</button>
         <button id="apply-action" type="button">Apply action</button>

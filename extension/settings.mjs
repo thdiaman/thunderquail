@@ -15,7 +15,8 @@ const defaults = {
   indexer_url: DEFAULT_INDEXER_URL,
   indexer_token: "",
   indexer_timeout: "2",
-  indexer_scope: "all"
+  indexer_scope: "all",
+  index_on_new_mail: false
 };
 
 const form = document.querySelector("#settings");
@@ -206,6 +207,7 @@ async function loadSettings() {
     for (const name of Object.keys(defaults)) {
       const input = form.elements.namedItem(name);
       if (name === "auto_attach_email") input.checked = saved[name] !== false;
+      else if (name === "index_on_new_mail") input.checked = saved[name] === true;
       else input.value = name === "indexer_url" ? saved[name] || DEFAULT_INDEXER_URL : saved[name];
     }
     if (!scopeSelect.value) scopeSelect.value = "all";
@@ -232,6 +234,7 @@ function readForm() {
   const values = Object.fromEntries([...new FormData(form)].map(([name, value]) => [name, value.trim()]));
   values.indexer_url ||= DEFAULT_INDEXER_URL;
   values.auto_attach_email = form.elements.namedItem("auto_attach_email").checked;
+  values.index_on_new_mail = form.elements.namedItem("index_on_new_mail").checked;
   return values;
 }
 

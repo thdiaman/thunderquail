@@ -2,12 +2,15 @@ import { loadSearchScopes, searchIndexedMail } from "./companion-search.mjs";
 import { readEmailBody } from "./email-context.mjs";
 import { loadExcludedEmails, mailIdentity } from "./privacy.mjs";
 import { sentStyleExcerpt } from "./sent-style.mjs";
+import {
+  coverageNote, decodedFolderPath, filterIndexRows, folderInScope, mergeResults, planGapSearch, searchThunderbird,
+  searchableFolders
+} from "./thunderbird-search.mjs";
 
 export const MAIL_RESULT_LIMIT = 10;
 export const MAIL_SHARE_LIMIT = 4;
 export const INBOX_PAGE_SIZE = 20;
 export const INBOX_EXCERPT_LENGTH = 1200;
-const RECENT_DAYS = 30;
 
 function uniqueMail(rows, limit) {
   const seen = new Set();
@@ -17,52 +20,6 @@ function uniqueMail(rows, limit) {
     seen.add(key);
     return true;
   }).slice(0, limit);
-}
-
-export async function recentMail(unread, signal, before) {
-  const inboxes = (await browser.folders.query({ specialUse: ["inbox"] }))
-    .filter(folder => !folder.isVirtual && !folder.isUnified);
-  const recent = [];
-  const limit = INBOX_PAGE_SIZE + 1;
-  const compare = (a, b) => b.time - a.time || b.id - a.id;
-  const since = (before?.time ?? Date.now()) - RECENT_DAYS * 86400000;
-  async function collect(dates, minimum, maximum) {
-    for (const folder of inboxes) {
-      signal.throwIfAborted();
-      let page = await browser.messages.query({ folderId: folder.id, ...dates, ...(unread && { read: false }) });
-      try {
-        do {
-          signal.throwIfAborted();
-          for (const message of page.messages) {
-            const time = new Date(message.date).getTime();
-            const row = { id: message.id, identity: mailIdentity(message.headerMessageId), subject: message.subject,
-              from: message.author, date: message.date, unread: message.read === false, time };
-            if (time >= minimum && time < maximum && (!before || compare(row, before) > 0)) recent.push(row);
-          }
-          recent.sort(compare);
-          recent.splice(0, recent.length, ...uniqueMail(recent, limit));
-          if (!page.id) break;
-          page = await browser.messages.continueList(page.id);
-        } while (page);
-      } finally {
-        if (page?.id) await browser.messages.abortList(page.id).catch(() => {});
-      }
-    }
-  }
-  await collect({ fromDate: new Date(since - 1), ...(before && { toDate: new Date(before.time + 1) }) },
-    since, Infinity);
-  if (recent.length < limit) await collect({ toDate: new Date(since) }, -Infinity, since);
-  return { rows: recent.slice(0, INBOX_PAGE_SIZE), hasMore: recent.length > INBOX_PAGE_SIZE };
-}
-
-function decodedFolderPath(path) {
-  return path.split("/").filter(Boolean).map(part => {
-    try {
-      return decodeURIComponent(part);
-    } catch {
-      return part;
-    }
-  });
 }
 
 async function indexedSentScopes(companion) {
@@ -78,6 +35,66 @@ async function indexedSentScopes(companion) {
     sent.has(JSON.stringify([scope.account, scope.folders]))).map(scope => scope.id);
   if (!matches.length) throw new Error("No Thunderbird Sent folders are covered by the local index.");
   return matches;
+}
+
+/** Where Thunderbird must be searched because the index may lack the mail, honoring the chosen index scope. */
+async function liveSearchPlan(companion, status, scope, signal) {
+  let folders = searchableFolders(await browser.folders.query({}));
+  if (companion && status?.searchable && scope && scope !== "all") {
+    try {
+      const { scopes } = await loadSearchScopes(companion);
+      signal.throwIfAborted();
+      const chosen = scopes.find(item => item.id === scope);
+      if (chosen) folders = folders.filter(folder => folderInScope(folder, chosen));
+    } catch (error) {
+      signal.throwIfAborted();
+      // Without the scope catalog, search every folder rather than none.
+    }
+  }
+  return planGapSearch(folders, status);
+}
+
+/**
+ * Searches by meaning in the companion's index when it is usable, and always searches Thunderbird itself for
+ * mail the index lacks (newer than its last update, or in folders it has not reached). Without a companion,
+ * Thunderbird's own search covers everything.
+ * @returns {{rows: object[], note: string}} rows ready for the sharing review, and what the search covered
+ */
+export async function searchMail(companion, status, filters, { scope, signal }) {
+  const excluded = await loadExcludedEmails();
+  const plan = await liveSearchPlan(companion, status, scope, signal);
+  const usable = Boolean(companion && status?.searchable);
+  const [indexRows, liveRows] = await Promise.all([
+    usable ? searchIndexedMail(companion, filters.query, signal, scope, { count: MAIL_SHARE_LIMIT * 2 })
+      .then(rows => filterIndexRows(rows ?? [], filters)) : [],
+    searchThunderbird(filters, plan, { signal, excluded, limit: MAIL_RESULT_LIMIT })
+  ]);
+  signal.throwIfAborted();
+  const merged = mergeResults(indexRows, liveRows, MAIL_SHARE_LIMIT + 2);
+  return { rows: await mailExcerpts(merged, signal), note: coverageNote(status, plan, liveRows.length) };
+}
+
+/** Emails related to the attached one: by meaning in the index, plus Thunderbird for what the index lacks. */
+export async function relatedMail(companion, status, email, scope, signal) {
+  const [{ headerIds = [] }, excluded] = await Promise.all([
+    browser.quailOverlay.getThread(email.message.id, true), loadExcludedEmails()
+  ]);
+  signal.throwIfAborted();
+  const skip = new Set([email.identity, ...email.parts.map(part => part.identity), ...headerIds.map(mailIdentity)]);
+  let indexRows = [];
+  if (companion && status?.searchable) {
+    try {
+      indexRows = await similarMail(companion, email, false, scope, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      // The live search below still covers the mailbox.
+    }
+  }
+  const subject = (email.subject || "").replace(/^\s*(?:(?:re|fwd?|απ|πρβ)\s*:\s*)+/i, "");
+  const plan = await liveSearchPlan(companion, status, scope, signal);
+  const liveRows = (await searchThunderbird({ query: subject }, plan, { signal, excluded, limit: MAIL_RESULT_LIMIT * 2 }))
+    .filter(row => !skip.has(row.identity));
+  return uniqueMail(mergeResults(indexRows, liveRows, MAIL_RESULT_LIMIT), MAIL_RESULT_LIMIT);
 }
 
 export async function similarMail(companion, email, sentOnly, scope, signal) {
@@ -127,7 +144,9 @@ export async function mailExcerpts(rows, signal, { inbox = false } = {}) {
           deadline.removeEventListener("abort", cancel);
         }
       }
-      return { ...row, date: new Date(row.date).toLocaleString(), text: text?.trim(), reference: `Mail ${index + 1}` };
+      const sent = new Date(row.date);
+      return { ...row, date: Number.isNaN(sent.getTime()) ? row.date : sent.toLocaleString(), text: text?.trim(),
+        reference: `Mail ${index + 1}` };
     }));
   signal.throwIfAborted();
   return results.flatMap(result => result.status === "fulfilled" && result.value.text ? [result.value] : []);

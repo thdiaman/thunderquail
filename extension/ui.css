@@ -795,49 +795,6 @@ body.settings {
   }
 }
 
-#mail-menu-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-#mail-menu-button .chat-icon {
-  width: 12px;
-  height: 12px;
-}
-
-#mail-menu {
-  --mail-menu-width: 10rem;
-  position: fixed;
-  inset: auto;
-  left: max(6px, min(var(--mail-menu-anchor, 6px), 100vw - var(--mail-menu-width) - 6px));
-  width: var(--mail-menu-width);
-  max-width: calc(100vw - 12px);
-  box-sizing: border-box;
-  margin: 0;
-  padding: 4px;
-  overflow: auto;
-  border: 0;
-  border-radius: 6px;
-  background: Canvas;
-  color: CanvasText;
-  box-shadow: 0 2px 10px color-mix(in srgb, CanvasText 23%, transparent);
-}
-
-#mail-menu:popover-open {
-  display: grid;
-}
-
-#mail-menu button {
-  margin: 0;
-  padding: 6px 9px;
-  text-align: start;
-}
-
-#mail-menu button:focus-visible {
-  outline-offset: -2px;
-}
-
 .mail-results {
   display: grid;
   gap: 4px;
@@ -871,10 +828,6 @@ body.settings {
 
 .attachment-controls:not(:has(> :not([hidden]))) {
   display: none;
-}
-
-#attach-email {
-  color: light-dark(#16696c, #9de2df);
 }
 
 .mail-context {
@@ -983,30 +936,20 @@ body.settings {
   margin-block: 5px;
 }
 
-#index-toggle {
-  display: flex;
+#index-status {
+  display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 5px;
-  margin: 0;
+  gap: 6px;
+  min-width: 0;
   font-weight: 500;
   white-space: nowrap;
-  min-width: 0;
   font-size: 0.8rem;
 }
 
 #index-label {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-#index-toggle:has(input:enabled) {
-  cursor: pointer;
-}
-
-#index-toggle:focus-within {
-  outline: 2px solid Highlight;
-  outline-offset: 2px;
 }
 
 .index-dot {
@@ -1017,8 +960,69 @@ body.settings {
   background: GrayText;
 }
 
-#search-index:enabled:checked + .index-dot {
+.index-dot[data-state="ready"] {
   background: #438c50;
+}
+
+.index-dot[data-state="building"],
+.index-dot[data-state="starting"] {
+  background: #c28a15;
+}
+
+.index-dot[data-state="offline"],
+.index-dot[data-state="error"] {
+  background: #b3423a;
+}
+
+#index-panel {
+  position: fixed;
+  inset: auto;
+  top: var(--index-panel-top, 40px);
+  left: max(6px, min(var(--index-panel-anchor, 6px), 100vw - min(22rem, 100vw - 12px) - 6px));
+  width: min(22rem, calc(100vw - 12px));
+  max-height: calc(100vh - var(--index-panel-top, 40px) - 8px);
+  box-sizing: border-box;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, CanvasText 22%, Canvas);
+  border-radius: 8px;
+  background: Canvas;
+  color: CanvasText;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 10px color-mix(in srgb, CanvasText 23%, transparent);
+}
+
+#index-panel p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+#index-folders {
+  max-height: 11rem;
+  margin: 6px 0;
+  padding: 0 0 0 1.1rem;
+  overflow: auto;
+  font-size: 0.8rem;
+}
+
+#index-folders:empty {
+  display: none;
+}
+
+#index-folders li {
+  overflow-wrap: anywhere;
+}
+
+.index-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.mail-context[data-empty] {
+  color: color-mix(in srgb, CanvasText 70%, Canvas);
 }
 
 .model-chip {
@@ -1076,7 +1080,7 @@ body.settings {
   color: color-mix(in srgb, CanvasText 80%, Canvas);
 }
 
-.overlay-chat :where(.chat-chip, .chat-toolbar button, #mail-menu button) {
+.overlay-chat :where(.chat-chip, .chat-toolbar button) {
   font: inherit;
   font-size: 0.8rem;
   line-height: 1.3;
@@ -1088,7 +1092,7 @@ body.settings {
   color: CanvasText;
 }
 
-.overlay-chat :where(.chat-chip, .chat-toolbar button, #mail-menu button):enabled:hover {
+.overlay-chat :where(.chat-chip, .chat-toolbar button):enabled:hover {
   background: color-mix(in srgb, #16696c 16%, Canvas);
   cursor: pointer;
 }

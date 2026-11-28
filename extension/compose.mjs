@@ -105,8 +105,10 @@ async function initialize() {
       files: ["compose-editor.js"]
     });
     snapshot = await browser.tabs.sendMessage(source, { type: "thunderquail-compose-capture" });
-    mode.querySelector('[value="selection"]').disabled = !snapshot.selected.trim();
-    mode.querySelector('[value="body"]').disabled = !snapshot.text.trim();
+    // Offer only the actions that apply to this draft, instead of listing disabled ones.
+    for (const [value, available] of [["selection", snapshot.selected.trim()], ["body", snapshot.text.trim()]]) {
+      if (!available) mode.querySelector(`[value="${value}"]`).remove();
+    }
     if (snapshot.selected.trim()) {
       mode.value = "selection";
       selectionTools.hidden = false;

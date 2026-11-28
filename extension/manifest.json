@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ThunderQuail",
-  "version": "0.15.2",
+  "version": "0.16.0",
   "description": "A local-first AI assistant for Thunderbird.",
   "browser_specific_settings": {
     "gecko": {
@@ -10,7 +10,11 @@
       "update_url": "https://thdiaman.github.io/thunderquail/updates.json"
     }
   },
-  "permissions": ["storage", "messagesRead", "compose", "scripting", "accountsRead", "accountsFolders", "messagesMove"],
+  "permissions": ["storage", "messagesRead", "compose", "scripting", "accountsRead", "accountsFolders", "messagesMove", "alarms"],
+  "background": {
+    "scripts": ["background.mjs"],
+    "type": "module"
+  },
   "host_permissions": ["http://*/*", "https://*/*"],
   "experiment_apis": {
     "quailOverlay": {

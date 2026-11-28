@@ -93,7 +93,7 @@
                     <pre><code id="setup-commands">python -m pip install -r companion/requirements.txt
 python -m companion</code></pre>
                   </div>
-                  The first run downloads the embedding model and indexes locally cached MBOX mail. Wait for <strong>Index ready</strong> and leave the terminal open.
+                  The first run downloads the embedding model and indexes locally cached MBOX mail in the background. Searches work while it runs. The <strong>Index</strong> status in the chat header shows progress. Leave the terminal open.
                 </li>
                 <li>In a second terminal in the same folder, run <code>python -m companion --show-token</code>. Paste the token below and use <code>http://127.0.0.1:49371</code> as the URL. Click <strong>Test companion connection</strong>, then <strong>Save settings</strong>.</li>
               </ol>
@@ -116,6 +116,12 @@ python -m companion</code></pre>
           <div class="settings-actions">
             <button id="test-indexer" type="button">Test companion connection</button>
             <span id="indexer-test-status" class="settings-feedback" role="status"></span>
+          </div>
+          <div class="settings-group">
+            <h2>Index updates</h2>
+            <p class="settings-muted">The companion checks for new mail every 5 minutes. You can also check from the index status in the chat header.</p>
+            <label class="settings-checkbox"><input id="index_on_new_mail" name="index_on_new_mail" type="checkbox"> Update the index when new mail arrives</label>
+            <small id="new-mail-hint">Off by default. When on, the companion is asked to check about a minute after the last new message. Searches include mail the index has not reached yet either way.</small>
           </div>
           <div class="settings-group">
             <h2>Search preferences</h2>
