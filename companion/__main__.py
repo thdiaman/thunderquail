@@ -1,8 +1,10 @@
 import argparse
 import hmac
+import json
 import os
 import re
-import sqlite3
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from flask import Flask, jsonify, request
@@ -10,20 +12,19 @@ from werkzeug.serving import make_server
 
 from .config import DEFAULT_PORT, companion_token, data_directory, default_profile
 from .embeddings import DEFAULT_MODEL, Embedder, EmbeddingError
-from .profile import Mailbox, build_scopes, discover_profile, mailbox_labels
+from .index import acquire_index_lock
+from .profile import Mailbox, discover_profile, mailbox_labels
+from .service import DEFAULT_POLL_SECONDS, IndexService
 
 
 EXTENSION_ORIGIN = re.compile(r"moz-extension://[a-zA-Z0-9-]+")
+AUTHORIZED_ENDPOINTS = {"search", "list_scopes", "status", "rescan"}
 
 
-def create_app(table, embedder, token, *, scopes=None, warnings=()):
-    from .index import count_chunks, search_index
-
+def create_app(service, token):
     app = Flask(__name__)
     app.config.update(TRUSTED_HOSTS=["127.0.0.1"], MAX_CONTENT_LENGTH=32 * 1024)
-    chunk_count = count_chunks(table)
     expected_auth = f"Bearer {token}".encode("ascii")
-    scopes = scopes or {}
 
     @app.after_request
     def cors(response):
@@ -38,11 +39,13 @@ def create_app(table, embedder, token, *, scopes=None, warnings=()):
 
     @app.get("/health")
     def health():
-        return jsonify(status="ok", chunks=chunk_count, embedding_model=embedder.model)
+        status = service.status()
+        return jsonify(status="ok", state=status["state"], searchable=status["searchable"],
+                       chunks=status["chunks"], embedding_model=status["embedding_model"])
 
     @app.before_request
     def authorize_index_access():
-        if request.endpoint not in {"search", "list_scopes"}:
+        if request.endpoint not in AUTHORIZED_ENDPOINTS:
             return None
         origin = request.headers.get("Origin")
         if origin is not None and not EXTENSION_ORIGIN.fullmatch(origin):
@@ -57,8 +60,17 @@ def create_app(table, embedder, token, *, scopes=None, warnings=()):
     def list_scopes():
         return jsonify(scopes=[
             {"id": key, "label": scope.label, "kind": scope.kind, "account": scope.account, "folders": scope.folders}
-            for key, scope in scopes.items()
-        ], warnings=list(warnings))
+            for key, scope in service.scopes.items()
+        ], warnings=service.warnings)
+
+    @app.route("/status", methods=["GET", "OPTIONS"])
+    def status():
+        return jsonify(service.status())
+
+    @app.route("/rescan", methods=["POST", "OPTIONS"])
+    def rescan():
+        # Returns at once. The scan runs in the background, and repeated requests are coalesced.
+        return jsonify(service.request_rescan()), 202
 
     @app.route("/search", methods=["POST", "OPTIONS"])
     def search():
@@ -69,6 +81,7 @@ def create_app(table, embedder, token, *, scopes=None, warnings=()):
         top_k = body.get("top_k", 5)
         scope = body.get("scope", "all")
         selected_scopes = body.get("scopes")
+        scopes = service.scopes
         if not isinstance(query, str) or not query.strip() or len(query) > 4000:
             return jsonify(error="query must contain 1 to 4000 characters."), 400
         if type(top_k) is not int or not 1 <= top_k <= 50:
@@ -83,12 +96,27 @@ def create_app(table, embedder, token, *, scopes=None, warnings=()):
                 return jsonify(error="Invalid indexed mail scopes."), 400
             paths = tuple(dict.fromkeys(path for key in selected_scopes for path in scopes[key].paths))
         try:
-            results = search_index(table, embedder, query.strip(), top_k, paths) if chunk_count else []
+            results = service.search(query.strip(), top_k, paths)
         except EmbeddingError as error:
             return jsonify(error=str(error)), 502
-        return jsonify(results=results)
+        # The index state travels with the results so callers know what the index did not cover.
+        return jsonify(results=results, index=service.status())
 
     return app
+
+
+def rescan_running_companion(port):
+    try:
+        token = companion_token(data_directory())
+        request_ = urllib.request.Request(f"http://127.0.0.1:{port}/rescan", method="POST",
+                                          headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(request_, timeout=10) as response:
+            status = json.load(response)
+    except urllib.error.HTTPError as error:
+        raise SystemExit(f"The companion refused the request (HTTP {error.code}).") from None
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"Could not reach a companion on port {port}: {error}") from None
+    print(f"Rescan requested. The companion is {status['state']}.")
 
 
 def main():
@@ -103,6 +131,11 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Loopback port (default: %(default)s).")
     parser.add_argument("--show-token", action="store_true",
                         help="Print the saved companion token, creating it if needed, and exit.")
+    parser.add_argument("--rescan", action="store_true",
+                        help="Ask the running companion to check for new mail now, then exit.")
+    parser.add_argument("--poll-seconds", type=int, default=DEFAULT_POLL_SECONDS, metavar="SECONDS",
+                        help="How often to check the mailboxes for new mail; 0 disables polling "
+                             "(default: %(default)s).")
     parser.add_argument("--rebuild", action="store_true", help="Re-embed all configured mailboxes.")
     parser.add_argument("--embedding-model", default=DEFAULT_MODEL,
                         help=f"Hugging Face model ID (default: {DEFAULT_MODEL}).")
@@ -129,42 +162,61 @@ def main():
         return
     if not 1 <= args.port <= 65535:
         parser.error("--port must be from 1 to 65535.")
+    if args.poll_seconds < 0:
+        parser.error("--poll-seconds must be 0 or greater.")
+    if args.rescan:
+        rescan_running_companion(args.port)
+        return
 
+    lock = None
     try:
-        from .index import build_index, count_chunks
-
         directory = data_directory()
         db_dir = (args.db_dir or directory / "index").resolve()
-        labels = {}
         if not args.mbox:
             profile = args.profile.resolve(strict=True) if args.profile else default_profile()
             if db_dir.is_relative_to(profile):
                 raise ValueError("Place --db-dir outside the Thunderbird profile.")
-            mailboxes, warnings = discover_profile(profile)
-            labels = mailbox_labels(profile, mailboxes)
+
+            def discover():
+                mailboxes, warnings = discover_profile(profile)
+                mailboxes = [mailbox for mailbox in mailboxes if not mailbox.path.is_relative_to(db_dir)]
+                return mailboxes, warnings, mailbox_labels(profile, mailboxes)
+
+            refresh = discover
+            discovery = discover()
         else:
             mailboxes = [Mailbox("", "", (str(path),), path)
                          for path in dict.fromkeys(item.resolve(strict=True) for item in args.mbox)]
-            warnings = []
-        paths = list(dict.fromkeys(mailbox.path for mailbox in mailboxes))
-        if any(not path.is_file() or path.is_relative_to(db_dir) for path in paths):
+            if any(not mailbox.path.is_file() or mailbox.path.is_relative_to(db_dir) for mailbox in mailboxes):
+                raise ValueError("Each mailbox must be a file outside --db-dir.")
+            refresh, discovery = None, (mailboxes, [], {})
+        if any(not mailbox.path.is_file() for mailbox in discovery[0]):
             raise ValueError("Each mailbox must be a file outside --db-dir.")
         token = companion_token(directory)
-        print(f"Index directory: {db_dir}", flush=True)
-        if warnings:
-            print(f"Coverage: {len(warnings):,} stores skipped. See Settings > Indexing > Index coverage.", flush=True)
-        print(f"Loading embedding model: {args.embedding_model} (downloads files if needed).", flush=True)
-        embedder = Embedder(args.embedding_model, args.embedding_revision)
-        table = build_index(db_dir, paths, embedder, rebuild=args.rebuild, labels=labels,
-                            report=lambda line: print(line, flush=True))
-        chunks = count_chunks(table)
-    except (EmbeddingError, OSError, ValueError, RuntimeError, sqlite3.Error) as error:
+        # Hold the index lock for the whole run, so that a second companion fails at once.
+        lock = acquire_index_lock(db_dir)
+    except (OSError, ValueError) as error:
         parser.exit(1, f"ThunderQuail index startup failed: {error}\n")
 
-    app = create_app(table, embedder, token, scopes=build_scopes(mailboxes), warnings=warnings)
-    with make_server("127.0.0.1", args.port, app, threaded=True) as server:
-        print(f"Index ready: {chunks:,} searchable chunks. Listening on http://127.0.0.1:{args.port}.", flush=True)
-        server.serve_forever()
+    print(f"Index directory: {db_dir}", flush=True)
+    if discovery[1]:
+        print(f"Coverage: {len(discovery[1]):,} stores skipped. See Settings > Indexing > Index coverage.", flush=True)
+    service = IndexService(
+        db_dir, discovery, lambda: Embedder(args.embedding_model, args.embedding_revision),
+        refresh=refresh, poll_seconds=args.poll_seconds, rebuild=args.rebuild,
+        report=lambda line: print(line, flush=True),
+    )
+    app = create_app(service, token)
+    service.start()
+    try:
+        with make_server("127.0.0.1", args.port, app, threaded=True) as server:
+            print(f"Listening on http://127.0.0.1:{args.port}. Searches work while the index updates.", flush=True)
+            server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        service.stop()
+        lock.release()
 
 
 if __name__ == "__main__":

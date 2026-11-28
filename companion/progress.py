@@ -23,6 +23,7 @@ class IndexProgress:
         self.finished_bytes = 0
         self.offset = 0
         self.folder = None
+        self.current = None
         self.embedded = 0
         self.reused = 0
         self.started = self.last_report = monotonic()
@@ -37,6 +38,7 @@ class IndexProgress:
         report(f"{mode}. " + ("; ".join(plan) + "." if plan else "No mailboxes found."))
 
     def start_mailbox(self, name, size):
+        self.current = name
         self.folder = f"[{self.finished_mailboxes + 1}/{self.mailboxes}] {name} ({size_label(size)})"
 
     def phase(self, description):
@@ -60,6 +62,10 @@ class IndexProgress:
         self.embedded += embedded
         self.reused += reused
         self.update()
+
+    def fraction(self):
+        scanned = min(self.finished_bytes + self.offset, self.total_bytes)
+        return scanned / self.total_bytes if self.total_bytes else 1.0
 
     def update(self):
         now = monotonic()

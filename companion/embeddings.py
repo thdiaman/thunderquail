@@ -1,12 +1,14 @@
 import json
 from pathlib import Path
-from threading import Lock
+from threading import Condition, Lock
 
 import numpy as np
 
 
 DEFAULT_MODEL = "intfloat/multilingual-e5-small"
 DEFAULT_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
+# Indexing embeds in small slices so that a search query can run between them.
+INDEXING_SLICE = 8
 
 
 class EmbeddingError(Exception):
@@ -20,6 +22,8 @@ class Embedder:
             raise ValueError("Provide a Hugging Face embedding model ID.")
         revision = revision or (DEFAULT_REVISION if self.model == DEFAULT_MODEL else None)
         self._lock = Lock()
+        self._turn = Condition()
+        self._queries_waiting = 0
         self._is_e5 = self.model.lower().split("/")[-1].startswith(("e5-", "multilingual-e5-"))
 
         try:
@@ -61,6 +65,23 @@ class Embedder:
     def embed(self, texts, *, query=False):
         if not texts:
             return []
+        if query:
+            with self._turn:
+                self._queries_waiting += 1
+            try:
+                return self._embed(texts, query)
+            finally:
+                with self._turn:
+                    self._queries_waiting -= 1
+                    self._turn.notify_all()
+        vectors = []
+        for start in range(0, len(texts), INDEXING_SLICE):
+            with self._turn:
+                self._turn.wait_for(lambda: not self._queries_waiting)
+            vectors.extend(self._embed(texts[start:start + INDEXING_SLICE], query))
+        return vectors
+
+    def _embed(self, texts, query):
         if self._is_e5:
             prefix = "query: " if query else "passage: "
             texts = [prefix + text for text in texts]

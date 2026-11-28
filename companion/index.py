@@ -1,5 +1,6 @@
 import itertools
 import json
+from datetime import datetime, timezone
 from hashlib import sha256
 from warnings import catch_warnings, filterwarnings
 
@@ -24,6 +25,27 @@ TABLE_NAME = "email_chunks"
 INDEX_VERSION = 1
 CHUNKS_ONLY = "mailbox_key != ''"
 CHECKPOINT_KEY = "checkpoint"
+
+
+class IndexObserver:
+    """Receives events from an index update. The defaults make the update behave as a plain batch job."""
+
+    def plan(self, table, compatible, changed, unchanged, removed, previous):
+        """Called once per update. `changed`, `unchanged` and `removed` are mailbox paths."""
+
+    def progress(self, progress):
+        """Called with the IndexProgress when the update has work to do."""
+
+    def committed(self, path, table):
+        """Called after a mailbox's rows and checkpoint were committed. `path` is None for removals."""
+
+    def failed(self, path, error):
+        """Called when a mailbox kept changing. Return True to skip it instead of aborting the update."""
+        return False
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _hash(text):
@@ -172,7 +194,8 @@ def _commit(db, table, rows, checkpoint, mailboxes, embedder, durable, progress,
         raise
 
 
-def _update_index(db, paths, embedder, rebuild, report, durable, labels):
+def _update_index(db, paths, embedder, rebuild, report, durable, labels, observer):
+    started_at = _now()
     try:
         table = db.open_table(TABLE_NAME)
     except ValueError as error:
@@ -189,6 +212,8 @@ def _update_index(db, paths, embedder, rebuild, report, durable, labels):
                if not isinstance(old_mailboxes.get(str(path)), dict)
                or list(stamp) != saved_fingerprint(old_mailboxes[str(path)])}
     removed = old_mailboxes.keys() - {str(path) for path in mailboxes}
+    observer.plan(table, compatible, list(changed), [path for path in mailboxes if path not in changed],
+                  sorted(removed), old_mailboxes)
     if compatible and not changed and not removed:
         if report is not None:
             report(f"All {len(mailboxes):,} mailboxes unchanged. Reusing the existing index.")
@@ -207,6 +232,7 @@ def _update_index(db, paths, embedder, rebuild, report, durable, labels):
         progress = IndexProgress(report, mailboxes=len(changed), unchanged=len(mailboxes) - len(changed),
                                  removed=len(removed), total_bytes=sum(stamp[2] for stamp in changed.values()),
                                  mode=mode)
+        observer.progress(progress)
     checkpoint = {"version": INDEX_VERSION, "provider": embedder.identity, "mailboxes": dict(old_mailboxes)}
     on_position = progress.position if progress else None
     on_phase = progress.phase if progress else None
@@ -216,14 +242,19 @@ def _update_index(db, paths, embedder, rebuild, report, durable, labels):
                 if progress:
                     progress.start_mailbox(labels.get(path, path.name), stamp[2])
                 update = plan_mailbox_update(path, stamp, None, on_position=on_position, on_phase=on_phase)
+                update.checkpoint["scanned_at"] = started_at
                 checkpoint["mailboxes"][str(path)] = update.checkpoint
                 yield from _mailbox_rows(path, update)
                 if progress:
                     progress.finish_mailbox(stamp[2])
         table = _commit(db, None, initial_rows(), checkpoint, mailboxes, embedder, durable, progress,
                         replace_index=True)
+        for path in mailboxes:
+            observer.committed(path, table)
     else:
         for path, stamp in changed.items():
+            previous_entry = checkpoint["mailboxes"].get(str(path))
+            skipped = False
             for attempt in range(2):
                 try:
                     if progress:
@@ -233,6 +264,7 @@ def _update_index(db, paths, embedder, rebuild, report, durable, labels):
                         path, stamp, old_mailboxes.get(str(path)), on_position=on_position, on_phase=on_phase,
                         load_existing=(lambda: _existing_message_rows(table, mailbox_key)) if table is not None else None,
                     )
+                    update.checkpoint["scanned_at"] = started_at
                     checkpoint["mailboxes"][str(path)] = update.checkpoint
                     delete = None
                     if update.replace:
@@ -245,9 +277,20 @@ def _update_index(db, paths, embedder, rebuild, report, durable, labels):
                     table = _commit(db, table, _mailbox_rows(path, update), checkpoint, {path: stamp},
                                     embedder, durable, progress, delete)
                     break
-                except MailboxChanged:
+                except MailboxChanged as error:
+                    # Never record the checkpoint of a mailbox whose rows were not committed.
+                    if previous_entry is None:
+                        checkpoint["mailboxes"].pop(str(path), None)
+                    else:
+                        checkpoint["mailboxes"][str(path)] = previous_entry
                     if attempt:
-                        raise
+                        if not observer.failed(path, error):
+                            raise
+                        skipped = True
+                        if report:
+                            report(f"Skipping a mailbox that keeps changing; retrying later: "
+                                   f"{labels.get(path, path.name)}")
+                        break
                     if report:
                         report(f"Mailbox changed during indexing; retrying: {labels.get(path, path.name)}")
                     if on_position:
@@ -255,11 +298,14 @@ def _update_index(db, paths, embedder, rebuild, report, durable, labels):
                     stamp = fingerprint(path.stat())
             if progress:
                 progress.finish_mailbox(stamp[2])
+            if not skipped:
+                observer.committed(path, table)
         if removed:
             for path in removed:
                 del checkpoint["mailboxes"][path]
             table = _commit(db, table, iter(()), checkpoint, {}, embedder, durable, progress,
                             _key_filter("mailbox_key", map(_hash, sorted(removed))))
+            observer.committed(None, table)
         if table is None:
             table = _commit(db, None, iter(()), checkpoint, {}, embedder, durable, progress)
     if progress:
@@ -267,22 +313,52 @@ def _update_index(db, paths, embedder, rebuild, report, durable, labels):
     return table
 
 
-def build_index(db_dir, paths, embedder, *, rebuild=False, report=None, labels=None):
+def acquire_index_lock(db_dir):
     db_dir.mkdir(parents=True, exist_ok=True)
+    lock = FileLock(str(db_dir / ".index.lock"), timeout=0)
     try:
-        with FileLock(str(db_dir / ".index.lock"), timeout=0):
-            cache_key = _hash(json.dumps([embedder.identity, rebuild]))
-            cache_path = db_dir / f".pending-embeddings-{cache_key}.sqlite"
-            durable = EmbeddingCache(cache_path)
-            try:
-                db = lancedb.connect(str(db_dir))
-                table = _update_index(db, paths, embedder, rebuild, report, durable, labels or {})
-            finally:
-                durable.close()
-            cache_path.unlink(missing_ok=True)
-            return table
+        lock.acquire()
     except Timeout:
         raise ValueError("Another companion is updating this index. Try again when it finishes.") from None
+    return lock
+
+
+def run_update(db_dir, paths, embedder, *, rebuild=False, report=None, labels=None, observer=None):
+    """Update the index. The caller must hold the index lock (see acquire_index_lock)."""
+    cache_key = _hash(json.dumps([embedder.identity, rebuild]))
+    cache_path = db_dir / f".pending-embeddings-{cache_key}.sqlite"
+    durable = EmbeddingCache(cache_path)
+    try:
+        db = lancedb.connect(str(db_dir))
+        table = _update_index(db, paths, embedder, rebuild, report, durable, labels or {},
+                              observer or IndexObserver())
+    finally:
+        durable.close()
+    cache_path.unlink(missing_ok=True)
+    return table
+
+
+def build_index(db_dir, paths, embedder, *, rebuild=False, report=None, labels=None, observer=None):
+    lock = acquire_index_lock(db_dir)
+    try:
+        return run_update(db_dir, paths, embedder, rebuild=rebuild, report=report, labels=labels,
+                          observer=observer)
+    finally:
+        lock.release()
+
+
+def open_table(db):
+    try:
+        return db.open_table(TABLE_NAME)
+    except ValueError as error:
+        # A failed first build can leave a directory without a committed manifest.
+        if str(error) != f"Table '{TABLE_NAME}' was not found":
+            raise
+        return None
+
+
+def read_checkpoint(table):
+    return _read_checkpoint(table)
 
 
 def search_index(table, embedder, query, top_k, paths=None):
